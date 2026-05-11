@@ -5,6 +5,7 @@ import requests
 from datetime import datetime, date, timezone, timedelta
 import time
 import os
+import math
 
 # --- 1. CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(
@@ -47,6 +48,7 @@ st.markdown(
         border: 2px solid #ffffff40;
         margin-bottom: 20px;
     }
+    /* Estilo para los títulos de las 5 secciones */
     .titulo-seccion {
         background-color: #1a2533;
         color: #f8f9fa;
@@ -107,14 +109,18 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS produccion (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, diametro TEXT, cantidad INTEGER)''')
     c.execute('''CREATE TABLE IF NOT EXISTS pedidos (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, cliente TEXT, diametro TEXT, cantidad_total INTEGER, estado TEXT, observaciones TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS entregas (id INTEGER PRIMARY KEY AUTOINCREMENT, pedido_id INTEGER, fecha TEXT, cantidad_entregada INTEGER, FOREIGN KEY(pedido_id) REFERENCES pedidos(id))''')
+    
     c.execute('''CREATE TABLE IF NOT EXISTS diametros (id INTEGER PRIMARY KEY AUTOINCREMENT, medida TEXT, tipo TEXT, seccion TEXT, precio REAL)''')
     try: c.execute("ALTER TABLE diametros ADD COLUMN seccion TEXT")
     except: pass
     c.execute("UPDATE diametros SET seccion = 'SIN ARMADURA' WHERE seccion IS NULL OR seccion = ''")
+
     c.execute('''CREATE TABLE IF NOT EXISTS clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, telefono TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS configuracion (id INTEGER PRIMARY KEY, parametro TEXT, valor REAL)''')
+    
     if conn.execute("SELECT COUNT(*) FROM configuracion WHERE parametro='iva'").fetchone()[0] == 0:
         conn.execute("INSERT INTO configuracion (parametro, valor) VALUES ('iva', 15.0)")
+    
     conn.commit()
     conn.close()
 
@@ -129,7 +135,6 @@ def obtener_iva():
     return res[0] if res else 15.0
 
 def obtener_diametros():
-    """Lista ordenada ascendentemente"""
     conn = get_connection()
     df = pd.read_sql("SELECT medida, tipo, seccion FROM diametros", conn)
     conn.close()
@@ -171,7 +176,7 @@ if login():
         st.info("Resumen de patio próximamente.")
 
     elif menu == OP_PROD:
-        st.header("🧱 Registro de Producción")
+        st.header("🧱 Registro de Fabricación")
         with st.form("f_prod"):
             c1, c2, c3 = st.columns(3)
             f_p = c1.date_input("Fecha", obtener_fecha_ecuador())
@@ -191,11 +196,15 @@ if login():
             c3, c4 = st.columns(2)
             di_v = c3.selectbox("Tubo", DIAM_DB)
             ca_v = c4.number_input("Cantidad Solicitada", min_value=1, step=1, value=None, placeholder="Escriba...")
-            ob = st.text_area("Notas del Pedido")
+            ob = st.text_area("Notas")
             if st.form_submit_button("Crear Pedido", type="primary"):
                 if di_v != "Seleccione..." and cl_v != "Seleccione Cliente..." and ca_v:
                     conn = get_connection(); conn.execute("INSERT INTO pedidos (fecha, cliente, diametro, cantidad_total, estado, observaciones) VALUES (?,?,?,?,?,?)", (f_v.strftime("%Y-%m-%d"), cl_v, di_v, ca_v, "Pendiente", ob)); conn.commit(); conn.close()
-                    st.success("✅ Pedido registrado"); time.sleep(1); st.rerun()
+                    st.success("✅ Registrado"); time.sleep(1); st.rerun()
+
+    elif menu == OP_DESPACHOS:
+        st.header("🚚 Control de Entregas")
+        st.info("Módulo de despachos próximamente.")
 
     elif menu == OP_CONFIG:
         st.header("⚙️ Administración de Datos")
@@ -216,9 +225,12 @@ if login():
                 
                 if not df_base.empty:
                     df_base['num'] = df_base['medida'].str.extract('(\d+)').astype(float)
-                    df_base['Pulgadas'] = (df_base['num'] / 25.4).round(1).astype(str) + '"'
-                    df_base['IVA_Calc'] = df_base['precio'] * (VALOR_IVA / 100)
-                    df_base['Total'] = df_base['precio'] + df_base['IVA_Calc']
+                    
+                    # Cálculo de pulgadas con aproximación al valor inmediato superior (math.ceil)
+                    df_base['Pulgadas'] = (df_base['num'] / 25.4).apply(math.ceil).astype(str) + '"'
+                    
+                    df_base['IVA'] = df_base['precio'] * (VALOR_IVA / 100)
+                    df_base['Total'] = df_base['precio'] + df_base['IVA']
                     
                     st.subheader("📋 Lista de Precios GUILLÉN")
                     for sec in SECCIONES:
@@ -233,12 +245,11 @@ if login():
                                 'precio': 'Valor Unitario',
                                 'Total': f'Precio + {VALOR_IVA}% IVA'
                             })
-                            # Aplicar formato de 2 decimales a las columnas de dinero
                             df_mostrar['Valor Unitario'] = df_mostrar['Valor Unitario'].apply(lambda x: f"${x:.2f}")
                             df_mostrar[f'Precio + {VALOR_IVA}% IVA'] = df_mostrar[f'Precio + {VALOR_IVA}% IVA'].apply(lambda x: f"${x:.2f}")
                             st.table(df_mostrar.assign(index='').set_index('index'))
                         else:
-                            st.caption(f"Sin registros en {sec}.")
+                            st.caption(f"No hay productos registrados en {sec}.")
 
                 st.divider()
                 c_a, c_e, c_b = st.columns(3)
@@ -246,8 +257,8 @@ if login():
                     with st.form("a_d", clear_on_submit=True):
                         st.write("**Nuevo Producto**")
                         n_sec = st.selectbox("Sección", SECCIONES)
-                        n_m, n_t = st.text_input("Medida (mm)"), st.text_input("Tipo/Detalle")
-                        # Entrada forzada a 2 decimales
+                        n_m = st.text_input("Medida (mm)")
+                        n_t = st.text_input("Tipo/Detalle")
                         n_p = st.number_input("Valor Unitario", min_value=0.0, value=None, placeholder="0.00", format="%.2f", step=0.01)
                         if st.form_submit_button("Guardar"):
                             if n_m and n_p is not None:
@@ -260,8 +271,10 @@ if login():
                             op_ed = {f"{r['medida']} ({r['seccion']})": r['medida'] for _, r in df_base.iterrows()}
                             sel_key = st.selectbox("Elegir Medida", list(op_ed.keys()))
                             sel_m = op_ed[sel_key]
+                            
                             new_s = st.selectbox("Nueva Sección", SECCIONES)
-                            new_m, new_t = st.text_input("Nuevo Nombre (mm)"), st.text_input("Nuevo Detalle")
+                            new_m = st.text_input("Nuevo Nombre Medida (mm)")
+                            new_t = st.text_input("Nuevo Tipo/Detalle")
                             new_p = st.number_input("Nuevo Valor Unitario", min_value=0.0, value=None, placeholder="0.00", format="%.2f", step=0.01)
                             if st.form_submit_button("Actualizar"):
                                 if new_m and new_p is not None:
