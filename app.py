@@ -1,18 +1,3 @@
-Entendido, Mateo. Vamos a hacer esos cambios quirúrgicos en la estructura de tu catálogo para que sea mucho más detallado y profesional.
-
-He actualizado el código para que:
-
-En la base de datos: Se cree automáticamente el campo "Tipo" (para que puedas poner si es tubo simple, reforzado, etc.).
-
-En la tabla visual: El orden ahora es: Medida | Tipo | Valor Unitario | Precio más IVA.
-
-Cálculo automático: Tú solo ingresas el valor unitario y la app calcula el 15% de IVA automáticamente para mostrarte el total.
-
-Formularios: He actualizado los cuadros de "Nuevo" y "Editar" para que también te pidan el tipo de tubo.
-
-Aquí tienes el código completo de tu archivo app.py. Reemplaza todo el contenido en GitHub y dale a Commit changes:
-
-Python
 import streamlit as st
 import pandas as pd
 import sqlite3
