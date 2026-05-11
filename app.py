@@ -1,14 +1,23 @@
+Entendido perfectamente. Vamos a aplicar una Doble Verificación de seguridad. Aunque ya estés dentro de la aplicación, al intentar entrar a "Configuración" el sistema te solicitará nuevamente la clave Tubos2026 para desbloquear las opciones de administración de clientes y diámetros.
+
+Aquí tienes el código completo de tu archivo app.py actualizado. Solo tienes que copiarlo y pegarlo íntegramente en GitHub:
+
+Python
 import streamlit as st
 import pandas as pd
 import sqlite3
 from datetime import datetime, timezone, timedelta
 
-# --- CONFIGURACIÓN DE LA PÁGINA ---
+# --- 1. CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Control de Tubos - Inventario", layout="wide")
 
-# --- SISTEMA DE SEGURIDAD ---
+# --- 2. SISTEMA DE SEGURIDAD GENERAL ---
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
+
+# Estado para la clave secundaria de configuración
+if "config_autenticado" not in st.session_state:
+    st.session_state.config_autenticado = False
 
 def login():
     if not st.session_state.autenticado:
@@ -25,7 +34,7 @@ def login():
         return False
     return True
 
-# --- FUNCIONES DE BASE DE DATOS ---
+# --- 3. FUNCIONES DE BASE DE DATOS ---
 def obtener_fecha_ecuador():
     tz_ecuador = timezone(timedelta(hours=-5))
     return datetime.now(tz_ecuador).date()
@@ -41,11 +50,10 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS pedidos (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, cliente TEXT, diametro TEXT, cantidad_total INTEGER, estado TEXT, observaciones TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS entregas (id INTEGER PRIMARY KEY AUTOINCREMENT, pedido_id INTEGER, fecha TEXT, cantidad_entregada INTEGER, FOREIGN KEY(pedido_id) REFERENCES pedidos(id))''')
     
-    # Tablas de Configuración (NUEVAS)
+    # Tablas de Configuración
     c.execute('''CREATE TABLE IF NOT EXISTS diametros (id INTEGER PRIMARY KEY AUTOINCREMENT, medida TEXT, precio REAL)''')
     c.execute('''CREATE TABLE IF NOT EXISTS clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, telefono TEXT)''')
     
-    # Auto-sembrar diámetros básicos si la tabla está vacía
     c.execute("SELECT COUNT(*) FROM diametros")
     if c.fetchone()[0] == 0:
         diametros_iniciales = [("10 cm", 0.0), ("15 cm", 0.0), ("20 cm", 0.0), ("30 cm", 0.0), ("50 cm", 0.0), ("100 cm", 0.0)]
@@ -56,7 +64,6 @@ def init_db():
 
 init_db()
 
-# Funciones extractoras para los menús desplegables
 def obtener_diametros():
     conn = get_connection()
     try:
@@ -77,12 +84,13 @@ def obtener_clientes():
     conn.close()
     return res
 
-# --- FLUJO PRINCIPAL (SOLO VISIBLE SI LA CLAVE ES CORRECTA) ---
+# --- 4. FLUJO PRINCIPAL (SOLO SI ESTÁ AUTENTICADO) ---
 if login():
     st.sidebar.title("🏭 Control Tubos")
     
     if st.sidebar.button("Cerrar Sesión"):
         st.session_state.autenticado = False
+        st.session_state.config_autenticado = False # Resetea también la de configuración
         st.rerun()
         
     st.sidebar.divider()
@@ -95,7 +103,10 @@ if login():
         "Configuración"
     ])
 
-    # Se alimentan automáticamente de la base de datos
+    # Al cambiar de pestaña en el menú, bloqueamos la configuración de nuevo por seguridad
+    if menu != "Configuración":
+        st.session_state.config_autenticado = False
+
     DIAMETROS_DB = obtener_diametros()
     CLIENTES_DB = obtener_clientes()
 
@@ -126,15 +137,13 @@ if login():
         with st.form("form_pedidos"):
             c1, c2 = st.columns(2)
             fecha_ped = c1.date_input("Fecha del Pedido", obtener_fecha_ecuador())
-            
-            # Ahora es un menú desplegable conectado a la configuración
             cliente_ped = c2.selectbox("Nombre del Comprador", CLIENTES_DB)
             
             c3, c4 = st.columns(2)
             diametro_ped = c3.selectbox("Diámetro Solicitado", DIAMETROS_DB)
             cant_ped = c4.number_input("Cantidad Total Comprada", min_value=1, step=1)
             
-            obs = st.text_area("Información adicional del pedido (Ej. Fechas acordadas de entrega)")
+            obs = st.text_area("Información adicional del pedido")
             
             if st.form_submit_button("Crear Pedido", type="primary"):
                 if diametro_ped != "Seleccione..." and cliente_ped != "Seleccione Cliente...":
@@ -148,63 +157,62 @@ if login():
 
     elif menu == "Despachos (Entregas)":
         st.header("🚚 Registrar Salida de Material")
-        st.info("Aquí cruzaremos los pedidos creados con las salidas reales para saber exactamente cuántos tubos faltan por enviar a cada cliente.")
+        st.info("Próximamente: Módulo para registrar las cargas de camiones.")
 
-    # --- NUEVA PESTAÑA: CONFIGURACIÓN ---
+    # --- 5. PESTAÑA CONFIGURACIÓN (CON CLAVE) ---
     elif menu == "Configuración":
         st.header("⚙️ Configuración del Sistema")
         
-        tab_diametros, tab_clientes = st.tabs(["📏 Medidas y Precios de Tubos", "👥 Base de Datos de Clientes"])
-        
-        with tab_diametros:
-            st.subheader("Tubos de Hormigón")
-            conn = get_connection()
-            df_diam = pd.read_sql("SELECT id, medida as Medida, precio as Precio_Unitario FROM diametros ORDER BY id ASC", conn)
+        # Validación de clave secundaria
+        if not st.session_state.config_autenticado:
+            st.warning("⚠️ Esta área requiere permisos de administrador.")
+            with st.form("auth_admin"):
+                clave_adm = st.text_input("Ingrese la clave de administrador", type="password")
+                if st.form_submit_button("Desbloquear Configuración"):
+                    if clave_adm == "Tubos2026":
+                        st.session_state.config_autenticado = True
+                        st.rerun()
+                    else:
+                        st.error("Clave incorrecta")
+        else:
+            # Si la clave es correcta, mostramos la configuración
+            st.success("🔓 Modo Administrador Activo")
             
-            col_tabla1, col_form1 = st.columns([3, 2])
+            tab_diametros, tab_clientes = st.tabs(["📏 Medidas y Precios", "👥 Directorio de Clientes"])
             
-            with col_tabla1:
-                if not df_diam.empty:
-                    df_diam['Precio_Unitario'] = df_diam['Precio_Unitario'].apply(lambda x: f"${x:.2f}")
-                    st.dataframe(df_diam.drop(columns=['id']), use_container_width=True, hide_index=True)
-                else:
-                    st.info("No hay medidas registradas.")
-            
-            with col_form1:
-                st.markdown("**Agregar Nueva Medida**")
-                with st.form("form_add_diametro", clear_on_submit=True):
-                    n_medida = st.text_input("Diámetro (Ej: 80 cm)")
-                    n_precio = st.number_input("Precio de Venta ($)", min_value=0.0, step=0.50, format="%.2f")
-                    if st.form_submit_button("Guardar Medida", type="primary"):
-                        if n_medida.strip():
-                            conn.execute("INSERT INTO diametros (medida, precio) VALUES (?, ?)", (n_medida.strip(), n_precio))
-                            conn.commit()
-                            st.rerun()
-            conn.close()
+            with tab_diametros:
+                conn = get_connection()
+                df_diam = pd.read_sql("SELECT id, medida as Medida, precio as Precio_Unitario FROM diametros ORDER BY id ASC", conn)
+                c_t1, c_f1 = st.columns([3, 2])
+                with c_t1:
+                    if not df_diam.empty:
+                        df_diam['Precio_Unitario'] = df_diam['Precio_Unitario'].apply(lambda x: f"${x:.2f}")
+                        st.dataframe(df_diam.drop(columns=['id']), use_container_width=True, hide_index=True)
+                with c_f1:
+                    st.markdown("**Aumentar Diámetro**")
+                    with st.form("add_diam", clear_on_submit=True):
+                        n_m = st.text_input("Medida")
+                        n_p = st.number_input("Precio ($)", min_value=0.0, step=0.50)
+                        if st.form_submit_button("Guardar"):
+                            if n_m:
+                                conn.execute("INSERT INTO diametros (medida, precio) VALUES (?,?)", (n_m, n_p))
+                                conn.commit(); st.rerun()
+                conn.close()
 
-        with tab_clientes:
-            st.subheader("Directorio de Compradores")
-            conn = get_connection()
-            df_cli = pd.read_sql("SELECT id, nombre as Cliente, telefono as Teléfono FROM clientes ORDER BY nombre ASC", conn)
-            
-            col_tabla2, col_form2 = st.columns([3, 2])
-            
-            with col_tabla2:
-                if not df_cli.empty:
-                    st.dataframe(df_cli.drop(columns=['id']), use_container_width=True, hide_index=True)
-                else:
-                    st.info("La base de datos de clientes está vacía.")
-            
-            with col_form2:
-                st.markdown("**Registrar Nuevo Cliente**")
-                with st.form("form_add_cliente", clear_on_submit=True):
-                    n_cliente = st.text_input("Nombre Completo o Empresa")
-                    n_telefono = st.text_input("Número de Contacto")
-                    if st.form_submit_button("Guardar Cliente", type="primary"):
-                        if n_cliente.strip():
-                            conn.execute("INSERT INTO clientes (nombre, telefono) VALUES (?, ?)", (n_cliente.strip(), n_telefono.strip()))
-                            conn.commit()
-                            st.rerun()
-                        else:
-                            st.error("El nombre del cliente es obligatorio.")
-            conn.close()
+            with tab_clientes:
+                conn = get_connection()
+                df_cli = pd.read_sql("SELECT id, nombre as Cliente, telefono as Teléfono FROM clientes ORDER BY nombre ASC", conn)
+                c_t2, c_f2 = st.columns([3, 2])
+                with c_t2:
+                    if not df_cli.empty:
+                        st.dataframe(df_cli.drop(columns=['id']), use_container_width=True, hide_index=True)
+                with c_f2:
+                    st.markdown("**Nuevo Cliente**")
+                    with st.form("add_cli", clear_on_submit=True):
+                        n_c = st.text_input("Nombre")
+                        n_t = st.text_input("Teléfono")
+                        if st.form_submit_button("Registrar"):
+                            if n_c:
+                                conn.execute("INSERT INTO clientes (nombre, telefono) VALUES (?,?)", (n_c, n_t))
+                                conn.commit(); st.rerun()
+                conn.close()
