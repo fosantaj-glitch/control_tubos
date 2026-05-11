@@ -1,8 +1,3 @@
-Entendido perfectamente. Vamos a aplicar una Doble Verificación de seguridad. Aunque ya estés dentro de la aplicación, al intentar entrar a "Configuración" el sistema te solicitará nuevamente la clave Tubos2026 para desbloquear las opciones de administración de clientes y diámetros.
-
-Aquí tienes el código completo de tu archivo app.py actualizado. Solo tienes que copiarlo y pegarlo íntegramente en GitHub:
-
-Python
 import streamlit as st
 import pandas as pd
 import sqlite3
