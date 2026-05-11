@@ -92,7 +92,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-URL_GOOGLE = "https://script.google.com/macros/s/AKfycbyCLgPnnxfeizslT_9ySWcMlYtwRpogD7S_NBT2xAgtMZTM94tYtbUVtTtOXSrpMgss/exec"
+URL_GOOGLE = "https://script.google.com/macros/s/AKfycbxDHSHswJSwZ-_GtHq6pW9aBFKrgu3k1RQ9Ct9ihUQhhQ0UtD7Ycvvz8hF4ti6ieSQ/exec"
 
 # --- 3. SISTEMA DE SEGURIDAD ---
 if "autenticado" not in st.session_state:
