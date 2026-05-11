@@ -48,7 +48,6 @@ st.markdown(
         border: 2px solid #ffffff40;
         margin-bottom: 20px;
     }
-    /* NUEVO ESTILO: Títulos de secciones más limpios, delgados y grises */
     .titulo-seccion {
         background-color: #f1f3f5;
         color: #5c636a;
@@ -68,7 +67,8 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-URL_GOOGLE = "https://script.google.com/macros/s/AKfycbw2YUNMCJB0fDNZ1jCWFmcgXv5VABsCXvAi6rsUXAVnlsUaQB2kgBvZCuBxEFVMOOL1/exec"
+# URL DE TU GOOGLE APPS SCRIPT
+URL_GOOGLE = "https://script.google.com/macros/s/AKfycbyCLgPnnxfeizslT_9ySWcMlYtwRpogD7S_NBT2xAgtMZTM94tYtbUVtTtOXSrpMgss/exec"
 
 # --- 3. SISTEMA DE SEGURIDAD ---
 if "autenticado" not in st.session_state:
@@ -96,7 +96,7 @@ def login():
         return False
     return True
 
-# --- 4. BASE DE DATOS ---
+# --- 4. FUNCIONES DE BASE DE DATOS Y RESPALDO ---
 def obtener_fecha_ecuador():
     tz_ecuador = timezone(timedelta(hours=-5))
     return datetime.now(tz_ecuador).date()
@@ -110,22 +110,48 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS produccion (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, diametro TEXT, cantidad INTEGER)''')
     c.execute('''CREATE TABLE IF NOT EXISTS pedidos (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, cliente TEXT, diametro TEXT, cantidad_total INTEGER, estado TEXT, observaciones TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS entregas (id INTEGER PRIMARY KEY AUTOINCREMENT, pedido_id INTEGER, fecha TEXT, cantidad_entregada INTEGER, FOREIGN KEY(pedido_id) REFERENCES pedidos(id))''')
-    
     c.execute('''CREATE TABLE IF NOT EXISTS diametros (id INTEGER PRIMARY KEY AUTOINCREMENT, medida TEXT, tipo TEXT, seccion TEXT, precio REAL)''')
     try: c.execute("ALTER TABLE diametros ADD COLUMN seccion TEXT")
     except: pass
     c.execute("UPDATE diametros SET seccion = 'SIN ARMADURA' WHERE seccion IS NULL OR seccion = ''")
-
     c.execute('''CREATE TABLE IF NOT EXISTS clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, telefono TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS configuracion (id INTEGER PRIMARY KEY, parametro TEXT, valor REAL)''')
-    
     if conn.execute("SELECT COUNT(*) FROM configuracion WHERE parametro='iva'").fetchone()[0] == 0:
         conn.execute("INSERT INTO configuracion (parametro, valor) VALUES ('iva', 15.0)")
-    
     conn.commit()
     conn.close()
 
 init_db()
+
+def ejecutar_respaldo_nube():
+    """Envía todos los datos locales a Google Sheets para respaldo"""
+    try:
+        conn = get_connection()
+        payload = {"accion": "sobreescribir"}
+        
+        tablas_config = {
+            "Produccion": "SELECT id, fecha, diametro, cantidad FROM produccion",
+            "Pedidos": "SELECT id, fecha, cliente, diametro, cantidad_total, estado, observaciones FROM pedidos",
+            "Entregas": "SELECT id, pedido_id, fecha, cantidad_entregada FROM entregas",
+            "Diametros": "SELECT id, medida, tipo, seccion, precio FROM diametros",
+            "Clientes": "SELECT id, nombre, telefono FROM clientes",
+            "Configuracion": "SELECT id, parametro, valor FROM configuracion"
+        }
+        
+        for nombre, query in tablas_config.items():
+            df = pd.read_sql(query, conn).fillna("")
+            payload[nombre] = [df.columns.tolist()] + df.values.tolist()
+        
+        conn.close()
+        
+        with st.spinner("Sincronizando con Google Drive..."):
+            response = requests.post(URL_GOOGLE, json=payload, timeout=35)
+            if response.status_code == 200:
+                st.success("✅ ¡Respaldo completado con éxito en TUBOS_DB!")
+            else:
+                st.error(f"❌ Error en el servidor: {response.status_code}")
+    except Exception as e:
+        st.error(f"❌ Error de conexión: {str(e)}")
 
 SECCIONES = ["SIN ARMADURA", "HORMIGON ARMADO", "CON ESPIGA", "TUBERIA CLASE II", "TAPAS PEATONALES"]
 
@@ -137,7 +163,7 @@ def obtener_iva():
 
 def obtener_diametros():
     conn = get_connection()
-    df = pd.read_sql("SELECT medida, tipo, seccion FROM diametros", conn)
+    df = pd.read_sql("SELECT medida, seccion FROM diametros", conn)
     conn.close()
     if not df.empty:
         df['num'] = df['medida'].str.extract('(\d+)').astype(float)
@@ -203,10 +229,6 @@ if login():
                     conn = get_connection(); conn.execute("INSERT INTO pedidos (fecha, cliente, diametro, cantidad_total, estado, observaciones) VALUES (?,?,?,?,?,?)", (f_v.strftime("%Y-%m-%d"), cl_v, di_v, ca_v, "Pendiente", ob)); conn.commit(); conn.close()
                     st.success("✅ Registrado"); time.sleep(1); st.rerun()
 
-    elif menu == OP_DESPACHOS:
-        st.header("🚚 Control de Entregas")
-        st.info("Módulo de despachos próximamente.")
-
     elif menu == OP_CONFIG:
         st.header("⚙️ Administración de Datos")
         if not st.session_state.config_autenticado:
@@ -217,49 +239,31 @@ if login():
                         st.session_state.config_autenticado = True; st.rerun()
                     else: st.error("Clave incorrecta")
         else:
-            st.success("🔓 Acceso de Administrador concedido")
-            t1, t2, t3 = st.tabs(["📏 Catálogo de Productos", "👥 Clientes", "💰 Impuestos"])
+            t1, t2, t3, t4 = st.tabs(["📏 Catálogo", "👥 Clientes", "💰 Impuestos", "☁️ Respaldo"])
             
             with t1:
                 conn = get_connection()
                 df_base = pd.read_sql("SELECT medida, tipo, seccion, precio FROM diametros", conn)
-                
                 if not df_base.empty:
                     df_base['num'] = df_base['medida'].str.extract('(\d+)').astype(float)
-                    
-                    # Cálculo de pulgadas con aproximación al valor inmediato superior (math.ceil)
                     df_base['Pulgadas'] = (df_base['num'] / 25.4).apply(math.ceil).astype(str) + '"'
-                    
                     df_base['IVA'] = df_base['precio'] * (VALOR_IVA / 100)
                     df_base['Total'] = df_base['precio'] + df_base['IVA']
-                    
                     st.subheader("📋 Lista de Precios GUILLÉN")
                     for sec in SECCIONES:
                         st.markdown(f'<div class="titulo-seccion">{sec}</div>', unsafe_allow_html=True)
                         df_sec = df_base[df_base['seccion'] == sec].sort_values('num', ascending=True)
-                        
                         if not df_sec.empty:
-                            df_mostrar = df_sec[['medida', 'Pulgadas', 'tipo', 'precio', 'Total']].rename(columns={
-                                'medida': 'Medida (mm)',
-                                'Pulgadas': 'Pulgadas (")',
-                                'tipo': 'Tipo / Detalle',
-                                'precio': 'Valor Unitario',
-                                'Total': f'Precio + {VALOR_IVA}% IVA'
-                            })
+                            df_mostrar = df_sec[['medida', 'Pulgadas', 'tipo', 'precio', 'Total']].rename(columns={'medida': 'Medida (mm)', 'Pulgadas': 'Pulgadas (")', 'tipo': 'Tipo / Detalle', 'precio': 'Valor Unitario', 'Total': f'Precio + {VALOR_IVA}% IVA'})
                             df_mostrar['Valor Unitario'] = df_mostrar['Valor Unitario'].apply(lambda x: f"${x:.2f}")
                             df_mostrar[f'Precio + {VALOR_IVA}% IVA'] = df_mostrar[f'Precio + {VALOR_IVA}% IVA'].apply(lambda x: f"${x:.2f}")
                             st.table(df_mostrar.assign(index='').set_index('index'))
-                        else:
-                            st.caption(f"No hay productos registrados en {sec}.")
-
                 st.divider()
                 c_a, c_e, c_b = st.columns(3)
                 with c_a:
                     with st.form("a_d", clear_on_submit=True):
                         st.write("**Nuevo Producto**")
-                        n_sec = st.selectbox("Sección", SECCIONES)
-                        n_m = st.text_input("Medida (mm)")
-                        n_t = st.text_input("Tipo/Detalle")
+                        n_sec, n_m, n_t = st.selectbox("Sección", SECCIONES), st.text_input("Medida (mm)"), st.text_input("Tipo/Detalle")
                         n_p = st.number_input("Valor Unitario", min_value=0.0, value=None, placeholder="0.00", format="%.2f", step=0.01)
                         if st.form_submit_button("Guardar"):
                             if n_m and n_p is not None:
@@ -272,10 +276,7 @@ if login():
                             op_ed = {f"{r['medida']} ({r['seccion']})": r['medida'] for _, r in df_base.iterrows()}
                             sel_key = st.selectbox("Elegir Medida", list(op_ed.keys()))
                             sel_m = op_ed[sel_key]
-                            
-                            new_s = st.selectbox("Nueva Sección", SECCIONES)
-                            new_m = st.text_input("Nuevo Nombre Medida (mm)")
-                            new_t = st.text_input("Nuevo Tipo/Detalle")
+                            new_s, new_m, new_t = st.selectbox("Nueva Sección", SECCIONES), st.text_input("Nuevo Nombre (mm)"), st.text_input("Nuevo Detalle")
                             new_p = st.number_input("Nuevo Valor Unitario", min_value=0.0, value=None, placeholder="0.00", format="%.2f", step=0.01)
                             if st.form_submit_button("Actualizar"):
                                 if new_m and new_p is not None:
@@ -328,3 +329,9 @@ if login():
                     if st.form_submit_button("Actualizar"):
                         conn = get_connection(); conn.execute("UPDATE configuracion SET valor=? WHERE parametro='iva'", (n_iva,))
                         conn.commit(); conn.close(); st.success("IVA actualizado"); time.sleep(1); st.rerun()
+
+            with t4:
+                st.subheader("☁️ Respaldo en la Nube")
+                st.write("Presiona el botón para subir toda la información de la App a tu hoja **TUBOS_DB** en Google Drive.")
+                if st.button("Sincronizar con Google Drive", type="primary", use_container_width=True):
+                    ejecutar_respaldo_nube()
