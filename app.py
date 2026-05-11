@@ -48,19 +48,20 @@ st.markdown(
         border: 2px solid #ffffff40;
         margin-bottom: 20px;
     }
-    /* Estilo para los títulos de las 5 secciones */
+    /* NUEVO ESTILO: Títulos de secciones más limpios, delgados y grises */
     .titulo-seccion {
-        background-color: #1a2533;
-        color: #f8f9fa;
-        padding: 12px;
-        border-radius: 8px;
-        margin-top: 30px;
-        margin-bottom: 15px;
+        background-color: #f1f3f5;
+        color: #5c636a;
+        padding: 6px 15px;
+        border-radius: 4px;
+        margin-top: 25px;
+        margin-bottom: 10px;
         text-align: center;
-        font-weight: bold;
+        font-weight: 600;
+        font-size: 1.05em;
         text-transform: uppercase;
-        letter-spacing: 1.5px;
-        border-left: 8px solid #ced4da;
+        letter-spacing: 2px;
+        border-bottom: 2px solid #8c9296;
     }
     </style>
     """,
