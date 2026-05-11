@@ -14,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. DISEÑO VISUAL ---
+# --- 2. DISEÑO VISUAL (DEGRADADO DIAGONAL) ---
 st.markdown(
     """
     <style>
@@ -52,6 +52,8 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+URL_GOOGLE = "https://script.google.com/macros/s/AKfycbw2YUNMCJB0fDNZ1jCWFmcgXv5VABsCXvAi6rsUXAVnlsUaQB2kgBvZCuBxEFVMOOL1/exec"
+
 # --- 3. SISTEMA DE SEGURIDAD ---
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
@@ -74,7 +76,8 @@ def login():
                 if clave == "Tubos2026":
                     st.session_state.autenticado = True
                     st.rerun() 
-                else: st.error("❌ Clave incorrecta")
+                else:
+                    st.error("❌ Clave incorrecta")
         return False
     return True
 
@@ -115,7 +118,7 @@ def obtener_iva():
     return res[0] if res else 15.0
 
 def obtener_diametros():
-    """Obtiene la lista ordenada de menor a mayor (500mm, 600mm...)"""
+    """Obtiene la lista ordenada de menor a mayor (500, 600, 700...)"""
     conn = get_connection()
     df = pd.read_sql("SELECT medida, tipo FROM diametros", conn)
     conn.close()
@@ -142,20 +145,20 @@ if login():
         st.rerun()
     
     st.sidebar.divider()
-    OP_RESUMEN, OP_PROD, OP_PEDIDOS, OP_DESPACHOS, OP_CONFIG = "📊 Resumen de Patio", "🧱 Fabricación Diaria", "📝 Pedidos y Ventas", "🚚 Despachos", "⚙️ Configuración"
-    menu = st.sidebar.radio("MENÚ PRINCIPAL", [OP_RESUMEN, OP_PROD, OP_PEDIDOS, OP_DESPACHOS, OP_CONFIG])
+    OPCION_RESUMEN, OPCION_PROD, OPCION_PEDIDOS, OPCION_DESPACHOS, OPCION_CONFIG = "📊 Resumen de Patio", "🧱 Fabricación Diaria", "📝 Pedidos y Ventas", "🚚 Despachos", "⚙️ Configuración"
+    menu = st.sidebar.radio("MENÚ PRINCIPAL", [OPCION_RESUMEN, OPCION_PROD, OPCION_PEDIDOS, OPCION_DESPACHOS, OPCION_CONFIG])
 
-    if menu != OP_CONFIG: st.session_state.config_autenticado = False
+    if menu != OPCION_CONFIG: st.session_state.config_autenticado = False
 
     DIAM_DB = obtener_diametros()
     CLI_DB = obtener_clientes()
     VALOR_IVA = obtener_iva()
 
-    if menu == OP_RESUMEN:
+    if menu == OPCION_RESUMEN:
         st.header("📊 Estado Actual del Inventario")
         st.info("Aquí aparecerá el resumen de tubos disponibles próximamente.")
 
-    elif menu == OP_PROD:
+    elif menu == OPCION_PROD:
         st.header("🧱 Registro de Producción")
         with st.form("f_prod"):
             c1, c2, c3 = st.columns(3)
@@ -168,7 +171,7 @@ if login():
                     st.success("✅ Datos guardados"); time.sleep(1); st.rerun()
                 else: st.error("Complete los campos obligatorios.")
 
-    elif menu == OP_PEDIDOS:
+    elif menu == OPCION_PEDIDOS:
         st.header("📝 Registro de Pedidos")
         with st.form("f_ped"):
             c1, c2 = st.columns(2)
@@ -184,11 +187,11 @@ if login():
                     st.success("✅ Pedido registrado"); time.sleep(1); st.rerun()
                 else: st.error("Complete los campos obligatorios.")
 
-    elif menu == OP_DESPACHOS:
+    elif menu == OPCION_DESPACHOS:
         st.header("🚚 Control de Entregas")
-        st.info("Módulo para despachar tubos próximamente.")
+        st.info("Módulo para despachar tubos por camión próximamente.")
 
-    elif menu == OP_CONFIG:
+    elif menu == OPCION_CONFIG:
         st.header("⚙️ Administración de Datos")
         if not st.session_state.config_autenticado:
             with st.form("admin_lock"):
@@ -203,23 +206,24 @@ if login():
             
             with t1:
                 conn = get_connection()
-                df_d = pd.read_sql("SELECT id as ID, medida as Diámetro, tipo as Tipo, precio as [Valor Unitario] FROM diametros", conn)
+                df_d = pd.read_sql("SELECT id, medida as Medida, tipo as Tipo, precio as [Valor Unitario] FROM diametros", conn)
                 if not df_d.empty:
-                    df_d['num_sort'] = df_d['Diámetro'].str.extract('(\d+)').astype(float)
+                    # Ordenar de menor a mayor (Ej. 500, 600, 700)
+                    df_d['num_sort'] = df_d['Medida'].str.extract('(\d+)').astype(float)
                     df_d = df_d.sort_values('num_sort', ascending=True)
                     
                     df_d['Precio más IVA'] = df_d['Valor Unitario'] * (1 + (VALOR_IVA / 100))
                     df_v = df_d.copy()
                     df_v['Valor Unitario'] = df_v['Valor Unitario'].apply(lambda x: f"${x:.2f}")
                     df_v['Precio más IVA'] = df_v['Precio más IVA'].apply(lambda x: f"${x:.2f}")
-                    st.write(f"**Catálogo de Productos (Orden Ascendente - IVA: {VALOR_IVA}%)**")
-                    st.dataframe(df_v.drop(columns=['num_sort']), use_container_width=True, hide_index=True)
+                    st.write(f"**Catálogo de Productos (Ordenado por diámetro - IVA: {VALOR_IVA}%)**")
+                    st.dataframe(df_v.drop(columns=['id', 'num_sort']), use_container_width=True, hide_index=True)
                 
                 c_a, c_e, c_b = st.columns(3)
                 with c_a:
                     with st.form("a_d", clear_on_submit=True):
                         st.write("**Nuevo Producto**")
-                        n_m, n_t = st.text_input("Medida (Ej: 500 mm)"), st.text_input("Tipo")
+                        n_m, n_t = st.text_input("Medida"), st.text_input("Tipo")
                         n_pr = st.number_input("Valor Unitario", min_value=0.0, value=None, placeholder="0.00")
                         if st.form_submit_button("Guardar"):
                             if n_m and n_pr is not None: 
@@ -228,19 +232,21 @@ if login():
                     if not df_d.empty:
                         with st.form("e_d"):
                             st.write("**Editar Producto**")
-                            opciones_ed = df_d['Diámetro'].tolist()
+                            opciones_ed = df_d['Medida'].tolist()
                             sel = st.selectbox("Elegir Medida", opciones_ed)
                             new_m, new_t = st.text_input("Nuevo Nombre Medida"), st.text_input("Nuevo Tipo")
                             new_p = st.number_input("Nuevo Valor Unitario", min_value=0.0, value=None, placeholder="0.00")
                             if st.form_submit_button("Actualizar"):
                                 if new_m and new_p is not None:
                                     conn.execute("UPDATE diametros SET medida=?, tipo=?, precio=? WHERE medida=?", (new_m, new_t, new_p, sel))
+                                    conn.execute("UPDATE produccion SET diametro=? WHERE diametro LIKE ?", (f"{new_m}%", f"{sel}%"))
+                                    conn.execute("UPDATE pedidos SET diametro=? WHERE diametro LIKE ?", (f"{new_m}%", f"{sel}%"))
                                     conn.commit(); st.rerun()
                 with c_b:
                     if not df_d.empty:
                         with st.form("b_d"):
                             st.write("**Borrar**")
-                            del_s = st.selectbox("Eliminar", df_d['Diámetro'].tolist())
+                            del_s = st.selectbox("Eliminar", df_d['Medida'].tolist())
                             if st.form_submit_button("Borrar"):
                                 conn.execute("DELETE FROM diametros WHERE medida=?", (del_s,)); conn.commit(); st.rerun()
                 conn.close()
@@ -266,6 +272,7 @@ if login():
                             if st.form_submit_button("Actualizar"):
                                 if new_n:
                                     conn.execute("UPDATE clientes SET nombre=?, telefono=? WHERE nombre=?", (new_n, new_t, sel_c))
+                                    conn.execute("UPDATE pedidos SET cliente=? WHERE cliente=?", (new_n, sel_c))
                                     conn.commit(); st.rerun()
                 with c3:
                     if not df_c.empty:
