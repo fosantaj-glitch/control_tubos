@@ -14,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. DISEÑO VISUAL (DEGRADADO Y ESTILOS) ---
+# --- 2. DISEÑO VISUAL ---
 st.markdown(
     """
     <style>
@@ -47,17 +47,19 @@ st.markdown(
         border: 2px solid #ffffff40;
         margin-bottom: 20px;
     }
-    .seccion-titulo {
-        background-color: #212529;
-        color: white;
-        padding: 10px;
-        border-radius: 5px;
-        margin-top: 25px;
-        margin-bottom: 10px;
-        text-transform: uppercase;
-        font-weight: bold;
+    /* Estilo para los títulos de las 5 secciones */
+    .titulo-seccion {
+        background-color: #1a2533;
+        color: #f8f9fa;
+        padding: 12px;
+        border-radius: 8px;
+        margin-top: 30px;
+        margin-bottom: 15px;
         text-align: center;
-        letter-spacing: 2px;
+        font-weight: bold;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        border-left: 8px solid #ced4da;
     }
     </style>
     """,
@@ -107,14 +109,12 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS pedidos (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, cliente TEXT, diametro TEXT, cantidad_total INTEGER, estado TEXT, observaciones TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS entregas (id INTEGER PRIMARY KEY AUTOINCREMENT, pedido_id INTEGER, fecha TEXT, cantidad_entregada INTEGER, FOREIGN KEY(pedido_id) REFERENCES pedidos(id))''')
     
-    # Crear tabla de diámetros y asegurar columna SECCIÓN
+    # Tabla de Diámetros con columna SECCIÓN
     c.execute('''CREATE TABLE IF NOT EXISTS diametros (id INTEGER PRIMARY KEY AUTOINCREMENT, medida TEXT, tipo TEXT, seccion TEXT, precio REAL)''')
-    try:
-        c.execute("ALTER TABLE diametros ADD COLUMN seccion TEXT")
-    except:
-        pass
+    try: c.execute("ALTER TABLE diametros ADD COLUMN seccion TEXT")
+    except: pass
 
-    # MIGRACIÓN CRÍTICA: Asigna una sección a los productos antiguos que están vacíos
+    # MIGRACIÓN: Asignar sección por defecto a registros antiguos para que no desaparezcan
     c.execute("UPDATE diametros SET seccion = 'SIN ARMADURA' WHERE seccion IS NULL OR seccion = ''")
 
     c.execute('''CREATE TABLE IF NOT EXISTS clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, telefono TEXT)''')
@@ -137,13 +137,14 @@ def obtener_iva():
     return res[0] if res else 15.0
 
 def obtener_diametros():
+    """Lista ordenada de Mayor a Menor para menús desplegables"""
     conn = get_connection()
     df = pd.read_sql("SELECT medida, tipo, seccion FROM diametros", conn)
     conn.close()
     if not df.empty:
         df['num'] = df['medida'].str.extract('(\d+)').astype(float)
-        df = df.sort_values('num', ascending=True)
-        return ["Seleccione..."] + [f"{r['medida']} ({r['seccion']})" for _, r in df.iterrows()]
+        df = df.sort_values('num', ascending=False)
+        return ["Seleccione..."] + [f"{r['medida']} - {r['seccion']}" for _, r in df.iterrows()]
     return ["Seleccione..."]
 
 def obtener_clientes():
@@ -175,19 +176,19 @@ if login():
 
     if menu == OP_RESUMEN:
         st.header("📊 Estado Actual del Inventario")
-        st.info("Aquí aparecerá el resumen de tubos disponibles próximamente.")
+        st.info("Resumen de patio próximamente.")
 
     elif menu == OP_PROD:
-        st.header("🧱 Registro de Producción")
+        st.header("🧱 Registro de Fabricación")
         with st.form("f_prod"):
             c1, c2, c3 = st.columns(3)
             f_p = c1.date_input("Fecha", obtener_fecha_ecuador())
             d_p = c2.selectbox("Tubo", DIAM_DB)
-            n_p = c3.number_input("Cantidad", min_value=1, step=1, value=None, placeholder="Escriba cantidad...")
+            n_p = c3.number_input("Cantidad", min_value=1, step=1, value=None, placeholder="Escriba...")
             if st.form_submit_button("Guardar Fabricación", type="primary"):
                 if d_p != "Seleccione..." and n_p:
                     conn = get_connection(); conn.execute("INSERT INTO produccion (fecha, diametro, cantidad) VALUES (?,?,?)", (f_p.strftime("%Y-%m-%d"), d_p, n_p)); conn.commit(); conn.close()
-                    st.success("✅ Datos guardados"); time.sleep(1); st.rerun()
+                    st.success("✅ Guardado"); time.sleep(1); st.rerun()
 
     elif menu == OP_PEDIDOS:
         st.header("📝 Registro de Pedidos")
@@ -197,16 +198,16 @@ if login():
             cl_v = c2.selectbox("Cliente", CLI_DB)
             c3, c4 = st.columns(2)
             di_v = c3.selectbox("Tubo", DIAM_DB)
-            ca_v = c4.number_input("Cantidad Solicitada", min_value=1, step=1, value=None, placeholder="Escriba cantidad...")
-            ob = st.text_area("Notas del Pedido")
+            ca_v = c4.number_input("Cantidad Solicitada", min_value=1, step=1, value=None, placeholder="Escriba...")
+            ob = st.text_area("Notas")
             if st.form_submit_button("Crear Pedido", type="primary"):
                 if di_v != "Seleccione..." and cl_v != "Seleccione Cliente..." and ca_v:
                     conn = get_connection(); conn.execute("INSERT INTO pedidos (fecha, cliente, diametro, cantidad_total, estado, observaciones) VALUES (?,?,?,?,?,?)", (f_v.strftime("%Y-%m-%d"), cl_v, di_v, ca_v, "Pendiente", ob)); conn.commit(); conn.close()
-                    st.success("✅ Pedido registrado"); time.sleep(1); st.rerun()
+                    st.success("✅ Registrado"); time.sleep(1); st.rerun()
 
     elif menu == OP_DESPACHOS:
         st.header("🚚 Control de Entregas")
-        st.info("Módulo para despachar tubos próximamente.")
+        st.info("Módulo de despachos próximamente.")
 
     elif menu == OP_CONFIG:
         st.header("⚙️ Administración de Datos")
@@ -218,7 +219,6 @@ if login():
                         st.session_state.config_autenticado = True; st.rerun()
                     else: st.error("Clave incorrecta")
         else:
-            st.success("🔓 Acceso de Administrador concedido")
             t1, t2, t3 = st.tabs(["📏 Catálogo de Productos", "👥 Clientes", "💰 Impuestos"])
             
             with t1:
@@ -226,24 +226,30 @@ if login():
                 df_base = pd.read_sql("SELECT medida, tipo, seccion, precio FROM diametros", conn)
                 
                 if not df_base.empty:
-                    # Lógica de Pulgadas e IVA
+                    # Cálculo de Pulgadas e IVA
                     df_base['num'] = df_base['medida'].str.extract('(\d+)').astype(float)
                     df_base['Pulgadas'] = (df_base['num'] / 25.4).round(1).astype(str) + '"'
                     df_base['IVA'] = df_base['precio'] * (VALOR_IVA / 100)
                     df_base['Total'] = df_base['precio'] + df_base['IVA']
                     
-                    st.subheader("📋 Lista de Precios Vigente")
+                    st.subheader("📋 Lista de Precios GUILLÉN")
+                    
+                    # Iterar por las 5 secciones para mostrarlas por separado
                     for sec in SECCIONES:
-                        df_sec = df_base[df_base['seccion'] == sec].sort_values('num')
+                        st.markdown(f'<div class="titulo-seccion">{sec}</div>', unsafe_allow_html=True)
+                        df_sec = df_base[df_base['seccion'] == sec].sort_values('num', ascending=False)
+                        
                         if not df_sec.empty:
-                            st.markdown(f'<div class="seccion-titulo">{sec}</div>', unsafe_allow_html=True)
                             df_mostrar = df_sec[['medida', 'Pulgadas', 'tipo', 'precio', 'Total']].rename(columns={
                                 'medida': 'Medida (mm)',
+                                'Pulgadas': 'Pulgadas (")',
                                 'tipo': 'Tipo / Detalle',
                                 'precio': 'Valor Unitario',
                                 'Total': f'Precio + {VALOR_IVA}% IVA'
                             })
-                            st.table(df_mostrar.assign(idx='').set_index('idx'))
+                            st.table(df_mostrar.assign(index='').set_index('index'))
+                        else:
+                            st.caption(f"No hay productos registrados en {sec}.")
 
                 st.divider()
                 c_a, c_e, c_b = st.columns(3)
@@ -262,7 +268,7 @@ if login():
                     if not df_base.empty:
                         with st.form("e_d"):
                             st.write("**Editar Producto**")
-                            # Ahora mostramos la medida junto con su sección para identificarla bien
+                            # Diccionario para identificar qué medida editar
                             op_ed = {f"{r['medida']} ({r['seccion']})": r['medida'] for _, r in df_base.iterrows()}
                             sel_key = st.selectbox("Elegir Medida", list(op_ed.keys()))
                             sel_m = op_ed[sel_key]
