@@ -14,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. DISEÑO VISUAL (DEGRADADO DIAGONAL) ---
+# --- 2. DISEÑO VISUAL (DEGRADADO Y ESTILOS) ---
 st.markdown(
     """
     <style>
@@ -47,17 +47,17 @@ st.markdown(
         border: 2px solid #ffffff40;
         margin-bottom: 20px;
     }
-    /* Estilo para los títulos de secciones del catálogo */
     .seccion-titulo {
         background-color: #212529;
         color: white;
         padding: 10px;
         border-radius: 5px;
-        margin-top: 20px;
+        margin-top: 25px;
         margin-bottom: 10px;
         text-transform: uppercase;
         font-weight: bold;
-        letter-spacing: 1px;
+        text-align: center;
+        letter-spacing: 2px;
     }
     </style>
     """,
@@ -107,10 +107,15 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS pedidos (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, cliente TEXT, diametro TEXT, cantidad_total INTEGER, estado TEXT, observaciones TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS entregas (id INTEGER PRIMARY KEY AUTOINCREMENT, pedido_id INTEGER, fecha TEXT, cantidad_entregada INTEGER, FOREIGN KEY(pedido_id) REFERENCES pedidos(id))''')
     
-    # Tabla de Diámetros con SECCIÓN
+    # Crear tabla de diámetros y asegurar columna SECCIÓN
     c.execute('''CREATE TABLE IF NOT EXISTS diametros (id INTEGER PRIMARY KEY AUTOINCREMENT, medida TEXT, tipo TEXT, seccion TEXT, precio REAL)''')
-    try: c.execute("ALTER TABLE diametros ADD COLUMN seccion TEXT")
-    except: pass
+    try:
+        c.execute("ALTER TABLE diametros ADD COLUMN seccion TEXT")
+    except:
+        pass
+
+    # MIGRACIÓN CRÍTICA: Asigna una sección a los productos antiguos que están vacíos
+    c.execute("UPDATE diametros SET seccion = 'SIN ARMADURA' WHERE seccion IS NULL OR seccion = ''")
 
     c.execute('''CREATE TABLE IF NOT EXISTS clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, telefono TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS configuracion (id INTEGER PRIMARY KEY, parametro TEXT, valor REAL)''')
@@ -149,10 +154,11 @@ def obtener_clientes():
 
 # --- 5. CUERPO DE LA APP ---
 if login():
+    st.sidebar.markdown("<br>", unsafe_allow_html=True)
     try: st.sidebar.image(NOMBRE_LOGO, use_container_width=True)
     except: st.sidebar.title("GUILLÉN")
 
-    if st.sidebar.button("Cerrar Sesión"):
+    if st.sidebar.button("Cerrar Sesión", use_container_width=True):
         st.session_state.autenticado = False
         st.session_state.config_autenticado = False
         st.rerun()
@@ -220,7 +226,7 @@ if login():
                 df_base = pd.read_sql("SELECT medida, tipo, seccion, precio FROM diametros", conn)
                 
                 if not df_base.empty:
-                    # Cálculo de Pulgadas e IVA
+                    # Lógica de Pulgadas e IVA
                     df_base['num'] = df_base['medida'].str.extract('(\d+)').astype(float)
                     df_base['Pulgadas'] = (df_base['num'] / 25.4).round(1).astype(str) + '"'
                     df_base['IVA'] = df_base['precio'] * (VALOR_IVA / 100)
@@ -237,7 +243,7 @@ if login():
                                 'precio': 'Valor Unitario',
                                 'Total': f'Precio + {VALOR_IVA}% IVA'
                             })
-                            st.table(df_mostrar.assign(index='').set_index('index'))
+                            st.table(df_mostrar.assign(idx='').set_index('idx'))
 
                 st.divider()
                 c_a, c_e, c_b = st.columns(3)
@@ -250,20 +256,24 @@ if login():
                         n_p = st.number_input("Valor Unitario", min_value=0.0, value=None, placeholder="0.00")
                         if st.form_submit_button("Guardar"):
                             if n_m and n_p is not None:
-                                conn.execute("INSERT INTO diametros (medida, tipo, seccion, precio) VALUES (?,?,?,?)", (n_m, n_t, n_sec, n_p))
+                                conn.execute("INSERT INTO diametros (medida, tipo, seccion, precio) VALUES (?,?,?,?)", (n_m.strip(), n_t.strip(), n_sec, n_p))
                                 conn.commit(); st.rerun()
                 with c_e:
                     if not df_base.empty:
                         with st.form("e_d"):
                             st.write("**Editar Producto**")
-                            sel = st.selectbox("Elegir Medida", df_base['medida'].unique())
+                            # Ahora mostramos la medida junto con su sección para identificarla bien
+                            op_ed = {f"{r['medida']} ({r['seccion']})": r['medida'] for _, r in df_base.iterrows()}
+                            sel_key = st.selectbox("Elegir Medida", list(op_ed.keys()))
+                            sel_m = op_ed[sel_key]
+                            
                             new_s = st.selectbox("Nueva Sección", SECCIONES)
-                            new_m = st.text_input("Nuevo Nombre Medida")
-                            new_t = st.text_input("Nuevo Tipo")
+                            new_m = st.text_input("Nuevo Nombre Medida (mm)")
+                            new_t = st.text_input("Nuevo Tipo/Detalle")
                             new_p = st.number_input("Nuevo Valor Unitario", min_value=0.0, value=None, placeholder="0.00")
                             if st.form_submit_button("Actualizar"):
                                 if new_m and new_p is not None:
-                                    conn.execute("UPDATE diametros SET seccion=?, medida=?, tipo=?, precio=? WHERE medida=?", (new_s, new_m, new_t, new_p, sel))
+                                    conn.execute("UPDATE diametros SET seccion=?, medida=?, tipo=?, precio=? WHERE medida=?", (new_s, new_m, new_t, new_p, sel_m))
                                     conn.commit(); st.rerun()
                 with c_b:
                     if not df_base.empty:
