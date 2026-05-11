@@ -137,13 +137,14 @@ def obtener_iva():
     return res[0] if res else 15.0
 
 def obtener_diametros():
-    """Lista ordenada de Mayor a Menor para menús desplegables"""
+    """Lista ordenada de Menor a Mayor (Ascendente) para menús desplegables"""
     conn = get_connection()
     df = pd.read_sql("SELECT medida, tipo, seccion FROM diametros", conn)
     conn.close()
     if not df.empty:
         df['num'] = df['medida'].str.extract('(\d+)').astype(float)
-        df = df.sort_values('num', ascending=False)
+        # Invertido a ascendente
+        df = df.sort_values('num', ascending=True)
         return ["Seleccione..."] + [f"{r['medida']} - {r['seccion']}" for _, r in df.iterrows()]
     return ["Seleccione..."]
 
@@ -237,7 +238,8 @@ if login():
                     # Iterar por las 5 secciones para mostrarlas por separado
                     for sec in SECCIONES:
                         st.markdown(f'<div class="titulo-seccion">{sec}</div>', unsafe_allow_html=True)
-                        df_sec = df_base[df_base['seccion'] == sec].sort_values('num', ascending=False)
+                        # Invertido a ascendente
+                        df_sec = df_base[df_base['seccion'] == sec].sort_values('num', ascending=True)
                         
                         if not df_sec.empty:
                             df_mostrar = df_sec[['medida', 'Pulgadas', 'tipo', 'precio', 'Total']].rename(columns={
