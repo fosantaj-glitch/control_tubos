@@ -4,7 +4,6 @@ import sqlite3
 import requests
 from datetime import datetime, date, timezone, timedelta
 import time
-import os
 
 # --- 1. CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(
@@ -50,6 +49,13 @@ st.markdown(
         padding: 20px;
         box-shadow: 5px 5px 15px rgba(0,0,0,0.05);
     }
+    
+    /* Estilo para redondear el logo si carga */
+    [data-testid="stSidebar"] img {
+        border-radius: 10px;
+        border: 2px solid #ffffff40;
+        margin-bottom: 20px;
+    }
     </style>
     """,
     unsafe_allow_html=True
@@ -64,16 +70,16 @@ if "autenticado" not in st.session_state:
 if "config_autenticado" not in st.session_state:
     st.session_state.config_autenticado = False
 
-# Nombre exacto del archivo que subiste
-NOMBRE_LOGO = "Logo moderno claro.jpg"
-
 def login():
     if not st.session_state.autenticado:
         c1, c2, c3 = st.columns([1, 2, 1])
         with c2:
             st.markdown("<br><br>", unsafe_allow_html=True)
-            if os.path.exists(NOMBRE_LOGO):
-                st.image(NOMBRE_LOGO, use_container_width=True)
+            # Intento directo de cargar el logo desde GitHub
+            try:
+                st.image("logo.jpg", use_container_width=True)
+            except:
+                pass
             
             st.title("🏭 Inventario GUILLÉN")
             st.subheader("Acceso al Sistema")
@@ -149,11 +155,13 @@ def obtener_clientes():
 
 # --- 5. CUERPO DE LA APP ---
 if login():
-    # Mostrar logo en la parte superior del menú izquierdo
-    if os.path.exists(NOMBRE_LOGO):
-        st.sidebar.image(NOMBRE_LOGO)
-    else:
-        st.sidebar.title("GUILLÉN")
+    st.sidebar.markdown("<br>", unsafe_allow_html=True)
+    
+    # Mostrar logo en la barra lateral
+    try:
+        st.sidebar.image("logo.jpg", use_container_width=True)
+    except:
+        st.sidebar.title("🏭 GUILLÉN TUBOS")
 
     if st.sidebar.button("Cerrar Sesión"):
         st.session_state.autenticado = False
