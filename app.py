@@ -4,6 +4,7 @@ import sqlite3
 import requests
 from datetime import datetime, date, timezone, timedelta
 import time
+import os
 
 # --- 1. CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(
@@ -50,7 +51,7 @@ st.markdown(
         box-shadow: 5px 5px 15px rgba(0,0,0,0.05);
     }
     
-    /* Estilo para redondear el logo si carga */
+    /* Estilo para el logo */
     [data-testid="stSidebar"] img {
         border-radius: 10px;
         border: 2px solid #ffffff40;
@@ -70,14 +71,16 @@ if "autenticado" not in st.session_state:
 if "config_autenticado" not in st.session_state:
     st.session_state.config_autenticado = False
 
+# Nombre exacto del archivo que debe estar en GitHub
+NOMBRE_LOGO = "logo.jpg"
+
 def login():
     if not st.session_state.autenticado:
         c1, c2, c3 = st.columns([1, 2, 1])
         with c2:
             st.markdown("<br><br>", unsafe_allow_html=True)
-            # Intento directo de cargar el logo desde GitHub
             try:
-                st.image("logo.jpg", use_container_width=True)
+                st.image(NOMBRE_LOGO, use_container_width=True)
             except:
                 pass
             
@@ -157,11 +160,10 @@ def obtener_clientes():
 if login():
     st.sidebar.markdown("<br>", unsafe_allow_html=True)
     
-    # Mostrar logo en la barra lateral
     try:
-        st.sidebar.image("logo.jpg", use_container_width=True)
+        st.sidebar.image(NOMBRE_LOGO, use_container_width=True)
     except:
-        st.sidebar.title("🏭 GUILLÉN TUBOS")
+        st.sidebar.title("GUILLÉN")
 
     if st.sidebar.button("Cerrar Sesión"):
         st.session_state.autenticado = False
@@ -169,19 +171,28 @@ if login():
         st.rerun()
     
     st.sidebar.divider()
-    menu = st.sidebar.radio("MENÚ PRINCIPAL", ["📊 Resumen de Patio", "🧱 Fabricación Diaria", "📝 Pedidos y Ventas", "🚚 Despachos", "⚙️ Configuración"])
+    
+    # Definición clara de las opciones del menú
+    OPCION_RESUMEN = "📊 Resumen de Patio"
+    OPCION_PROD = "🧱 Fabricación Diaria"
+    OPCION_PEDIDOS = "📝 Pedidos y Ventas"
+    OPCION_DESPACHOS = "🚚 Despachos"
+    OPCION_CONFIG = "⚙️ Configuración"
+    
+    menu = st.sidebar.radio("MENÚ PRINCIPAL", [OPCION_RESUMEN, OPCION_PROD, OPCION_PEDIDOS, OPCION_DESPACHOS, OPCION_CONFIG])
 
-    if menu != "Configuración":
+    # Corrección CRÍTICA: La comparación ahora coincide exactamente con el menú
+    if menu != OPCION_CONFIG:
         st.session_state.config_autenticado = False
 
     DIAM_DB = obtener_diametros()
     CLI_DB = obtener_clientes()
 
-    if menu == "📊 Resumen de Patio":
+    if menu == OPCION_RESUMEN:
         st.header("📊 Estado Actual del Inventario")
         st.info("Aquí aparecerá el resumen de tubos disponibles próximamente.")
 
-    elif menu == "🧱 Fabricación Diaria":
+    elif menu == OPCION_PROD:
         st.header("🧱 Registro de Producción")
         with st.form("f_prod"):
             c1, c2, c3 = st.columns(3)
@@ -194,7 +205,7 @@ if login():
                     st.success("✅ Datos guardados")
                     time.sleep(1); st.rerun()
 
-    elif menu == "📝 Pedidos y Ventas":
+    elif menu == OPCION_PEDIDOS:
         st.header("📝 Registro de Pedidos")
         with st.form("f_ped"):
             c1, c2 = st.columns(2)
@@ -209,20 +220,23 @@ if login():
                     conn = get_connection(); conn.execute("INSERT INTO pedidos (fecha, cliente, diametro, cantidad_total, estado, observaciones) VALUES (?,?,?,?,?,?)", (f_v.strftime("%Y-%m-%d"), cl_v, di_v, ca_v, "Pendiente", ob)); conn.commit(); conn.close()
                     st.success("✅ Pedido registrado"); time.sleep(1); st.rerun()
 
-    elif menu == "🚚 Despachos":
+    elif menu == OPCION_DESPACHOS:
         st.header("🚚 Control de Entregas")
         st.info("Módulo para despachar tubos por camión próximamente.")
 
-    elif menu == "⚙️ Configuración":
+    elif menu == OPCION_CONFIG:
         st.header("⚙️ Administración de Datos")
         if not st.session_state.config_autenticado:
             with st.form("admin_lock"):
                 cl_adm = st.text_input("Clave de Administrador", type="password")
                 if st.form_submit_button("Desbloquear"):
                     if cl_adm == "Tubos2026":
-                        st.session_state.config_autenticado = True; st.rerun()
-                    else: st.error("Clave incorrecta")
+                        st.session_state.config_autenticado = True
+                        st.rerun()
+                    else:
+                        st.error("Clave incorrecta")
         else:
+            st.success("🔓 Acceso de Administrador concedido")
             t1, t2 = st.tabs(["📏 Diámetros y Precios", "👥 Clientes"])
             
             with t1:
