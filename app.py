@@ -1,16 +1,19 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
-from datetime import datetime, timezone, timedelta
+import requests
+from datetime import datetime, date, timezone, timedelta
+import time
 
 # --- 1. CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Control de Tubos - Inventario", layout="wide")
 
-# --- 2. SISTEMA DE SEGURIDAD GENERAL ---
+URL_GOOGLE = "https://script.google.com/macros/s/AKfycbw2YUNMCJB0fDNZ1jCWFmcgXv5VABsCXvAi6rsUXAVnlsUaQB2kgBvZCuBxEFVMOOL1/exec"
+
+# --- 2. SISTEMA DE SEGURIDAD ---
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 
-# Estado para la clave secundaria de configuración
 if "config_autenticado" not in st.session_state:
     st.session_state.config_autenticado = False
 
@@ -19,7 +22,6 @@ def login():
         st.title("🏭 Sistema de Control de Tubos")
         st.subheader("Acceso Restringido")
         clave = st.text_input("Ingrese la clave de acceso", type="password")
-        
         if st.button("Entrar", type="primary"):
             if clave == "Tubos2026":
                 st.session_state.autenticado = True
@@ -40,12 +42,9 @@ def get_connection():
 def init_db():
     conn = get_connection()
     c = conn.cursor()
-    # Tablas de Movimientos
     c.execute('''CREATE TABLE IF NOT EXISTS produccion (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, diametro TEXT, cantidad INTEGER)''')
     c.execute('''CREATE TABLE IF NOT EXISTS pedidos (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, cliente TEXT, diametro TEXT, cantidad_total INTEGER, estado TEXT, observaciones TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS entregas (id INTEGER PRIMARY KEY AUTOINCREMENT, pedido_id INTEGER, fecha TEXT, cantidad_entregada INTEGER, FOREIGN KEY(pedido_id) REFERENCES pedidos(id))''')
-    
-    # Tablas de Configuración
     c.execute('''CREATE TABLE IF NOT EXISTS diametros (id INTEGER PRIMARY KEY AUTOINCREMENT, medida TEXT, precio REAL)''')
     c.execute('''CREATE TABLE IF NOT EXISTS clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, telefono TEXT)''')
     
@@ -53,52 +52,59 @@ def init_db():
     if c.fetchone()[0] == 0:
         diametros_iniciales = [("10 cm", 0.0), ("15 cm", 0.0), ("20 cm", 0.0), ("30 cm", 0.0), ("50 cm", 0.0), ("100 cm", 0.0)]
         c.executemany("INSERT INTO diametros (medida, precio) VALUES (?,?)", diametros_iniciales)
-        
     conn.commit()
     conn.close()
 
 init_db()
 
+def enviar_a_google(hoja, fila):
+    try: requests.post(URL_GOOGLE, json={"hoja": hoja, "fila": fila}, timeout=15)
+    except: pass
+
+def ejecutar_respaldo_total():
+    try:
+        conn = get_connection()
+        df_p = pd.read_sql("SELECT * FROM produccion", conn).fillna("")
+        df_v = pd.read_sql("SELECT * FROM pedidos", conn).fillna("")
+        df_e = pd.read_sql("SELECT * FROM entregas", conn).fillna("")
+        df_d = pd.read_sql("SELECT medida, precio FROM diametros", conn).fillna("")
+        df_c = pd.read_sql("SELECT nombre, telefono FROM clientes", conn).fillna("")
+        conn.close()
+        
+        payload = {
+            "accion": "sobreescribir",
+            "Produccion": [df_p.columns.tolist()] + df_p.astype(str).values.tolist(),
+            "Pedidos": [df_v.columns.tolist()] + df_v.astype(str).values.tolist(),
+            "Entregas": [df_e.columns.tolist()] + df_e.astype(str).values.tolist(),
+            "Diametros": [df_d.columns.tolist()] + df_d.astype(str).values.tolist(),
+            "Clientes": [df_c.columns.tolist()] + df_c.astype(str).values.tolist()
+        }
+        requests.post(URL_GOOGLE, json=payload, timeout=25)
+    except: pass
+
 def obtener_diametros():
     conn = get_connection()
-    try:
-        df = pd.read_sql("SELECT medida FROM diametros ORDER BY id ASC", conn)
-        res = ["Seleccione..."] + df['medida'].tolist()
-    except:
-        res = ["Seleccione..."]
+    df = pd.read_sql("SELECT medida FROM diametros ORDER BY id ASC", conn)
     conn.close()
-    return res
+    return ["Seleccione..."] + df['medida'].tolist()
 
 def obtener_clientes():
     conn = get_connection()
-    try:
-        df = pd.read_sql("SELECT nombre FROM clientes ORDER BY nombre ASC", conn)
-        res = ["Seleccione Cliente..."] + df['nombre'].tolist()
-    except:
-        res = ["Seleccione Cliente..."]
+    df = pd.read_sql("SELECT nombre FROM clientes ORDER BY nombre ASC", conn)
     conn.close()
-    return res
+    return ["Seleccione Cliente..."] + df['nombre'].tolist()
 
-# --- 4. FLUJO PRINCIPAL (SOLO SI ESTÁ AUTENTICADO) ---
+# --- 4. FLUJO PRINCIPAL ---
 if login():
     st.sidebar.title("🏭 Control Tubos")
-    
     if st.sidebar.button("Cerrar Sesión"):
         st.session_state.autenticado = False
-        st.session_state.config_autenticado = False # Resetea también la de configuración
+        st.session_state.config_autenticado = False
         st.rerun()
-        
     st.sidebar.divider()
     
-    menu = st.sidebar.radio("Navegación", [
-        "Resumen de Inventario", 
-        "Registro de Producción Diaria", 
-        "Gestión de Pedidos y Ventas", 
-        "Despachos (Entregas)",
-        "Configuración"
-    ])
+    menu = st.sidebar.radio("Navegación", ["Resumen de Inventario", "Registro de Producción Diaria", "Gestión de Pedidos y Ventas", "Despachos (Entregas)", "Configuración"])
 
-    # Al cambiar de pestaña en el menú, bloqueamos la configuración de nuevo por seguridad
     if menu != "Configuración":
         st.session_state.config_autenticado = False
 
@@ -107,107 +113,115 @@ if login():
 
     if menu == "Resumen de Inventario":
         st.header("📊 Inventario en Tiempo Real")
-        st.info("Aquí pondremos los indicadores de cuántos tubos de cada medida hay disponibles en patio hoy.")
+        st.info("Espacio para indicadores de stock (Próximamente)")
 
     elif menu == "Registro de Producción Diaria":
         st.header("🧱 Registrar Fabricación")
         with st.form("form_produccion"):
             c1, c2, c3 = st.columns(3)
-            fecha_prod = c1.date_input("Fecha de Fabricación", obtener_fecha_ecuador())
-            diametro_prod = c2.selectbox("Diámetro del Tubo", DIAMETROS_DB)
-            cant_prod = c3.number_input("Cantidad Fabricada", min_value=1, step=1)
-            
+            fecha_p = c1.date_input("Fecha", obtener_fecha_ecuador())
+            diam_p = c2.selectbox("Diámetro", DIAMETROS_DB)
+            cant_p = c3.number_input("Cantidad", min_value=1, step=1)
             if st.form_submit_button("Guardar Producción", type="primary"):
-                if diametro_prod != "Seleccione...":
-                    conn = get_connection()
-                    conn.execute("INSERT INTO produccion (fecha, diametro, cantidad) VALUES (?,?,?)", 
-                                 (fecha_prod.strftime("%Y-%m-%d"), diametro_prod, cant_prod))
-                    conn.commit(); conn.close()
-                    st.success(f"✅ Se agregaron {cant_prod} tubos de {diametro_prod} al inventario.")
-                else:
-                    st.error("Seleccione un diámetro válido.")
+                if diam_p != "Seleccione...":
+                    conn = get_connection(); conn.execute("INSERT INTO produccion (fecha, diametro, cantidad) VALUES (?,?,?)", (fecha_p.strftime("%Y-%m-%d"), diam_p, cant_p)); conn.commit(); conn.close()
+                    st.success("✅ Guardado"); time.sleep(1); st.rerun()
 
     elif menu == "Gestión de Pedidos y Ventas":
         st.header("📝 Nuevo Pedido / Venta")
         with st.form("form_pedidos"):
             c1, c2 = st.columns(2)
-            fecha_ped = c1.date_input("Fecha del Pedido", obtener_fecha_ecuador())
-            cliente_ped = c2.selectbox("Nombre del Comprador", CLIENTES_DB)
-            
+            fecha_v = c1.date_input("Fecha", obtener_fecha_ecuador())
+            cli_v = c2.selectbox("Cliente", CLIENTES_DB)
             c3, c4 = st.columns(2)
-            diametro_ped = c3.selectbox("Diámetro Solicitado", DIAMETROS_DB)
-            cant_ped = c4.number_input("Cantidad Total Comprada", min_value=1, step=1)
-            
-            obs = st.text_area("Información adicional del pedido")
-            
+            diam_v = c3.selectbox("Diámetro", DIAMETROS_DB)
+            cant_v = c4.number_input("Cantidad Total", min_value=1, step=1)
+            obs = st.text_area("Observaciones")
             if st.form_submit_button("Crear Pedido", type="primary"):
-                if diametro_ped != "Seleccione..." and cliente_ped != "Seleccione Cliente...":
-                    conn = get_connection()
-                    conn.execute("INSERT INTO pedidos (fecha, cliente, diametro, cantidad_total, estado, observaciones) VALUES (?,?,?,?,?,?)", 
-                                 (fecha_ped.strftime("%Y-%m-%d"), cliente_ped, diametro_ped, cant_ped, "Pendiente", obs))
-                    conn.commit(); conn.close()
-                    st.success("✅ Pedido registrado con éxito.")
-                else:
-                    st.error("Complete seleccionando el cliente y el diámetro.")
+                if diam_v != "Seleccione..." and cli_v != "Seleccione Cliente...":
+                    conn = get_connection(); conn.execute("INSERT INTO pedidos (fecha, cliente, diametro, cantidad_total, estado, observaciones) VALUES (?,?,?,?,?,?)", (fecha_v.strftime("%Y-%m-%d"), cli_v, diam_v, cant_v, "Pendiente", obs)); conn.commit(); conn.close()
+                    st.success("✅ Pedido Creado"); time.sleep(1); st.rerun()
 
     elif menu == "Despachos (Entregas)":
-        st.header("🚚 Registrar Salida de Material")
-        st.info("Próximamente: Módulo para registrar las cargas de camiones.")
+        st.header("🚚 Registrar Salida")
+        st.info("Módulo de carga de camiones (Próximamente)")
 
-    # --- 5. PESTAÑA CONFIGURACIÓN (CON CLAVE) ---
     elif menu == "Configuración":
         st.header("⚙️ Configuración del Sistema")
-        
-        # Validación de clave secundaria
         if not st.session_state.config_autenticado:
-            st.warning("⚠️ Esta área requiere permisos de administrador.")
             with st.form("auth_admin"):
-                clave_adm = st.text_input("Ingrese la clave de administrador", type="password")
-                if st.form_submit_button("Desbloquear Configuración"):
+                clave_adm = st.text_input("Ingrese clave de administrador", type="password")
+                if st.form_submit_button("Desbloquear"):
                     if clave_adm == "Tubos2026":
-                        st.session_state.config_autenticado = True
-                        st.rerun()
-                    else:
-                        st.error("Clave incorrecta")
+                        st.session_state.config_autenticado = True; st.rerun()
+                    else: st.error("Clave incorrecta")
         else:
-            # Si la clave es correcta, mostramos la configuración
             st.success("🔓 Modo Administrador Activo")
+            tab_diam, tab_cli = st.tabs(["📏 Medidas y Precios", "👥 Directorio de Clientes"])
             
-            tab_diametros, tab_clientes = st.tabs(["📏 Medidas y Precios", "👥 Directorio de Clientes"])
-            
-            with tab_diametros:
+            with tab_diam:
                 conn = get_connection()
-                df_diam = pd.read_sql("SELECT id, medida as Medida, precio as Precio_Unitario FROM diametros ORDER BY id ASC", conn)
-                c_t1, c_f1 = st.columns([3, 2])
-                with c_t1:
-                    if not df_diam.empty:
-                        df_diam['Precio_Unitario'] = df_diam['Precio_Unitario'].apply(lambda x: f"${x:.2f}")
-                        st.dataframe(df_diam.drop(columns=['id']), use_container_width=True, hide_index=True)
-                with c_f1:
-                    st.markdown("**Aumentar Diámetro**")
-                    with st.form("add_diam", clear_on_submit=True):
-                        n_m = st.text_input("Medida")
-                        n_p = st.number_input("Precio ($)", min_value=0.0, step=0.50)
+                df_d = pd.read_sql("SELECT id, medida as Medida, precio as Precio FROM diametros ORDER BY id ASC", conn)
+                st.dataframe(df_d.drop(columns=['id']), use_container_width=True, hide_index=True)
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    with st.form("add_d", clear_on_submit=True):
+                        st.markdown("**Agregar**")
+                        nm, np = st.text_input("Nueva Medida"), st.number_input("Precio ($)", min_value=0.0)
                         if st.form_submit_button("Guardar"):
-                            if n_m:
-                                conn.execute("INSERT INTO diametros (medida, precio) VALUES (?,?)", (n_m, n_p))
-                                conn.commit(); st.rerun()
+                            if nm: conn.execute("INSERT INTO diametros (medida, precio) VALUES (?,?)", (nm, np)); conn.commit(); st.rerun()
+                with col2:
+                    if not df_d.empty:
+                        with st.form("edit_d"):
+                            st.markdown("**Corregir**")
+                            opc_d = dict(zip(df_d['Medida'], df_d['id']))
+                            d_sel = st.selectbox("Seleccione", list(opc_d.keys()))
+                            new_m, new_p = st.text_input("Nombre Correcto"), st.number_input("Precio Correcto", min_value=0.0)
+                            if st.form_submit_button("Actualizar", type="primary"):
+                                if new_m:
+                                    conn.execute("UPDATE diametros SET medida=?, precio=? WHERE id=?", (new_m, new_p, opc_d[d_sel]))
+                                    conn.execute("UPDATE produccion SET diametro=? WHERE diametro=?", (new_m, d_sel))
+                                    conn.execute("UPDATE pedidos SET diametro=? WHERE diametro=?", (new_m, d_sel))
+                                    conn.commit(); st.rerun()
+                with col3:
+                    if not df_d.empty:
+                        with st.form("del_d"):
+                            st.markdown("**Borrar**")
+                            d_del = st.selectbox("Eliminar medida", list(dict(zip(df_d['Medida'], df_d['id'])).keys()))
+                            if st.form_submit_button("Eliminar"):
+                                conn.execute("DELETE FROM diametros WHERE medida=?", (d_del,)); conn.commit(); st.rerun()
                 conn.close()
 
-            with tab_clientes:
+            with tab_cli:
                 conn = get_connection()
-                df_cli = pd.read_sql("SELECT id, nombre as Cliente, telefono as Teléfono FROM clientes ORDER BY nombre ASC", conn)
-                c_t2, c_f2 = st.columns([3, 2])
-                with c_t2:
-                    if not df_cli.empty:
-                        st.dataframe(df_cli.drop(columns=['id']), use_container_width=True, hide_index=True)
-                with c_f2:
-                    st.markdown("**Nuevo Cliente**")
-                    with st.form("add_cli", clear_on_submit=True):
-                        n_c = st.text_input("Nombre")
-                        n_t = st.text_input("Teléfono")
+                df_c = pd.read_sql("SELECT id, nombre as Cliente, telefono as Teléfono FROM clientes ORDER BY nombre ASC", conn)
+                st.dataframe(df_c.drop(columns=['id']), use_container_width=True, hide_index=True)
+                
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    with st.form("add_c", clear_on_submit=True):
+                        st.markdown("**Nuevo**")
+                        nc, nt = st.text_input("Nombre"), st.text_input("Teléfono")
                         if st.form_submit_button("Registrar"):
-                            if n_c:
-                                conn.execute("INSERT INTO clientes (nombre, telefono) VALUES (?,?)", (n_c, n_t))
-                                conn.commit(); st.rerun()
+                            if nc: conn.execute("INSERT INTO clientes (nombre, telefono) VALUES (?,?)", (nc, nt)); conn.commit(); st.rerun()
+                with col2:
+                    if not df_c.empty:
+                        with st.form("edit_c"):
+                            st.markdown("**Corregir**")
+                            opc_c = dict(zip(df_c['Cliente'], df_c['id']))
+                            c_sel = st.selectbox("Seleccione Cliente", list(opc_c.keys()))
+                            new_c, new_t = st.text_input("Nombre Correcto"), st.text_input("Teléfono Correcto")
+                            if st.form_submit_button("Actualizar", type="primary"):
+                                if new_c:
+                                    conn.execute("UPDATE clientes SET nombre=?, telefono=? WHERE id=?", (new_c, new_t, opc_c[c_sel]))
+                                    conn.execute("UPDATE pedidos SET cliente=? WHERE cliente=?", (new_c, c_sel))
+                                    conn.commit(); st.rerun()
+                with col3:
+                    if not df_c.empty:
+                        with st.form("del_c"):
+                            st.markdown("**Borrar**")
+                            c_del = st.selectbox("Eliminar cliente", list(dict(zip(df_c['Cliente'], df_c['id'])).keys()))
+                            if st.form_submit_button("Borrar"):
+                                conn.execute("DELETE FROM clientes WHERE nombre=?", (c_del,)); conn.commit(); st.rerun()
                 conn.close()
