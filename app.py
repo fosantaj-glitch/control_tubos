@@ -76,7 +76,8 @@ def login():
                 if clave == "Tubos2026":
                     st.session_state.autenticado = True
                     st.rerun() 
-                else: st.error("❌ Clave incorrecta")
+                else:
+                    st.error("❌ Clave incorrecta")
         return False
     return True
 
@@ -94,22 +95,32 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS produccion (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, diametro TEXT, cantidad INTEGER)''')
     c.execute('''CREATE TABLE IF NOT EXISTS pedidos (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, cliente TEXT, diametro TEXT, cantidad_total INTEGER, estado TEXT, observaciones TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS entregas (id INTEGER PRIMARY KEY AUTOINCREMENT, pedido_id INTEGER, fecha TEXT, cantidad_entregada INTEGER, FOREIGN KEY(pedido_id) REFERENCES pedidos(id))''')
-    
-    # Tabla de Diámetros con columna TIPO
     c.execute('''CREATE TABLE IF NOT EXISTS diametros (id INTEGER PRIMARY KEY AUTOINCREMENT, medida TEXT, tipo TEXT, precio REAL)''')
-    try: c.execute("ALTER TABLE diametros ADD COLUMN tipo TEXT")
-    except: pass
-
     c.execute('''CREATE TABLE IF NOT EXISTS clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, telefono TEXT)''')
     
+    # Tabla de Configuración de Impuestos (IVA)
+    c.execute('''CREATE TABLE IF NOT EXISTS configuracion (id INTEGER PRIMARY KEY, parametro TEXT, valor REAL)''')
+    
+    # Sembrar IVA inicial (15%) si no existe
+    c.execute("SELECT COUNT(*) FROM configuracion WHERE parametro='iva'")
+    if c.fetchone()[0] == 0:
+        c.execute("INSERT INTO configuracion (parametro, valor) VALUES ('iva', 15.0)")
+
     c.execute("SELECT COUNT(*) FROM diametros")
     if c.fetchone()[0] == 0:
         iniciales = [("10 cm", "Estandar", 0.0), ("15 cm", "Estandar", 0.0), ("20 cm", "Estandar", 0.0), ("30 cm", "Estandar", 0.0), ("50 cm", "Estandar", 0.0), ("100 cm", "Estandar", 0.0)]
         c.executemany("INSERT INTO diametros (medida, tipo, precio) VALUES (?,?,?)", iniciales)
+    
     conn.commit()
     conn.close()
 
 init_db()
+
+def obtener_iva():
+    conn = get_connection()
+    res = conn.execute("SELECT valor FROM configuracion WHERE parametro='iva'").fetchone()
+    conn.close()
+    return res[0] if res else 15.0
 
 def obtener_diametros():
     conn = get_connection()
@@ -141,6 +152,7 @@ if login():
 
     DIAM_DB = obtener_diametros()
     CLI_DB = obtener_clientes()
+    VALOR_IVA = obtener_iva()
 
     if menu == OPCION_RESUMEN:
         st.header("📊 Estado Actual del Inventario")
@@ -152,11 +164,13 @@ if login():
             c1, c2, c3 = st.columns(3)
             f_p = c1.date_input("Fecha", obtener_fecha_ecuador())
             d_p = c2.selectbox("Tubo (Medida y Tipo)", DIAM_DB)
-            n_p = c3.number_input("Cantidad", min_value=1, step=1)
+            # Entrada de número sin valor predeterminado para evitar el borrado manual
+            n_p = c3.number_input("Cantidad", min_value=1, step=1, value=None, placeholder="Escriba cantidad...")
             if st.form_submit_button("Guardar Fabricación", type="primary"):
-                if d_p != "Seleccione...":
+                if d_p != "Seleccione..." and n_p:
                     conn = get_connection(); conn.execute("INSERT INTO produccion (fecha, diametro, cantidad) VALUES (?,?,?)", (f_p.strftime("%Y-%m-%d"), d_p, n_p)); conn.commit(); conn.close()
                     st.success("✅ Datos guardados"); time.sleep(1); st.rerun()
+                else: st.error("Complete los campos obligatorios.")
 
     elif menu == OPCION_PEDIDOS:
         st.header("📝 Registro de Pedidos")
@@ -166,12 +180,13 @@ if login():
             cl_v = c2.selectbox("Cliente", CLI_DB)
             c3, c4 = st.columns(2)
             di_v = c3.selectbox("Tubo", DIAM_DB)
-            ca_v = c4.number_input("Cantidad Solicitada", min_value=1, step=1)
+            ca_v = c4.number_input("Cantidad Solicitada", min_value=1, step=1, value=None, placeholder="Escriba cantidad...")
             ob = st.text_area("Notas del Pedido")
             if st.form_submit_button("Crear Pedido", type="primary"):
-                if di_v != "Seleccione..." and cl_v != "Seleccione Cliente...":
+                if di_v != "Seleccione..." and cl_v != "Seleccione Cliente..." and ca_v:
                     conn = get_connection(); conn.execute("INSERT INTO pedidos (fecha, cliente, diametro, cantidad_total, estado, observaciones) VALUES (?,?,?,?,?,?)", (f_v.strftime("%Y-%m-%d"), cl_v, di_v, ca_v, "Pendiente", ob)); conn.commit(); conn.close()
                     st.success("✅ Pedido registrado"); time.sleep(1); st.rerun()
+                else: st.error("Complete los campos obligatorios.")
 
     elif menu == OPCION_DESPACHOS:
         st.header("🚚 Control de Entregas")
@@ -188,19 +203,18 @@ if login():
                     else: st.error("Clave incorrecta")
         else:
             st.success("🔓 Acceso de Administrador concedido")
-            t1, t2 = st.tabs(["📏 Diámetros y Precios", "👥 Clientes"])
+            t1, t2, t3 = st.tabs(["📏 Diámetros y Precios", "👥 Clientes", "💰 Impuestos"])
             
             with t1:
                 conn = get_connection()
-                # CARGA DE DATOS CON NUEVAS COLUMNAS Y CÁLCULO DE IVA
                 df_d = pd.read_sql("SELECT id, medida as Medida, tipo as Tipo, precio as [Valor Unitario] FROM diametros ORDER BY id ASC", conn)
                 if not df_d.empty:
-                    df_d['Precio más IVA'] = df_d['Valor Unitario'] * 1.15
-                    # Formatear para visualización
+                    # Cálculo dinámico basado en el IVA configurado
+                    df_d['Precio más IVA'] = df_d['Valor Unitario'] * (1 + (VALOR_IVA / 100))
                     df_v = df_d.copy()
                     df_v['Valor Unitario'] = df_v['Valor Unitario'].apply(lambda x: f"${x:.2f}")
                     df_v['Precio más IVA'] = df_v['Precio más IVA'].apply(lambda x: f"${x:.2f}")
-                    st.write("**Catálogo de Productos**")
+                    st.write(f"**Catálogo de Productos (IVA aplicado: {VALOR_IVA}%)**")
                     st.dataframe(df_v.drop(columns=['id']), use_container_width=True, hide_index=True)
                 
                 c_a, c_e, c_b = st.columns(3)
@@ -208,10 +222,11 @@ if login():
                     with st.form("a_d", clear_on_submit=True):
                         st.write("**Nuevo Producto**")
                         n_m = st.text_input("Medida")
-                        n_t = st.text_input("Tipo (Ej: Simple, Reforzado)")
-                        n_pr = st.number_input("Valor Unitario", min_value=0.0)
+                        n_t = st.text_input("Tipo")
+                        n_pr = st.number_input("Valor Unitario", min_value=0.0, value=None, placeholder="0.00")
                         if st.form_submit_button("Guardar"):
-                            if n_m: conn.execute("INSERT INTO diametros (medida, tipo, precio) VALUES (?,?,?)", (n_m, n_t, n_pr)); conn.commit(); st.rerun()
+                            if n_m and n_pr is not None: 
+                                conn.execute("INSERT INTO diametros (medida, tipo, precio) VALUES (?,?,?)", (n_m, n_t, n_pr)); conn.commit(); st.rerun()
                 with c_e:
                     if not df_d.empty:
                         with st.form("e_d"):
@@ -219,12 +234,10 @@ if login():
                             sel = st.selectbox("Elegir Medida", df_d['Medida'].tolist())
                             new_m = st.text_input("Nuevo Nombre Medida")
                             new_t = st.text_input("Nuevo Tipo")
-                            new_p = st.number_input("Nuevo Valor Unitario", min_value=0.0)
+                            new_p = st.number_input("Nuevo Valor Unitario", min_value=0.0, value=None, placeholder="0.00")
                             if st.form_submit_button("Actualizar"):
-                                if new_m:
+                                if new_m and new_p is not None:
                                     conn.execute("UPDATE diametros SET medida=?, tipo=?, precio=? WHERE medida=?", (new_m, new_t, new_p, sel))
-                                    conn.execute("UPDATE produccion SET diametro=? WHERE diametro LIKE ?", (f"{new_m}%", f"{sel}%"))
-                                    conn.execute("UPDATE pedidos SET diametro=? WHERE diametro LIKE ?", (f"{new_m}%", f"{sel}%"))
                                     conn.commit(); st.rerun()
                 with c_b:
                     if not df_d.empty:
@@ -256,7 +269,6 @@ if login():
                             if st.form_submit_button("Actualizar"):
                                 if new_n:
                                     conn.execute("UPDATE clientes SET nombre=?, telefono=? WHERE nombre=?", (new_n, new_t, sel_c))
-                                    conn.execute("UPDATE pedidos SET cliente=? WHERE cliente=?", (new_n, sel_c))
                                     conn.commit(); st.rerun()
                 with c3:
                     if not df_c.empty:
@@ -266,3 +278,14 @@ if login():
                             if st.form_submit_button("Borrar"):
                                 conn.execute("DELETE FROM clientes WHERE nombre=?", (del_c,)); conn.commit(); st.rerun()
                 conn.close()
+
+            with t3:
+                st.write("**Configuración de IVA**")
+                st.info(f"El IVA actual configurado es del **{VALOR_IVA}%**")
+                with st.form("f_iva"):
+                    n_iva = st.number_input("Nuevo Porcentaje de IVA (%)", min_value=0.0, max_value=100.0, value=float(VALOR_IVA), step=1.0)
+                    if st.form_submit_button("Actualizar Porcentaje"):
+                        conn = get_connection()
+                        conn.execute("UPDATE configuracion SET valor=? WHERE parametro='iva'", (n_iva,))
+                        conn.commit(); conn.close()
+                        st.success(f"IVA actualizado al {n_iva}%"); time.sleep(1); st.rerun()
