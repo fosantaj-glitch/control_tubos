@@ -14,63 +14,41 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. DISEÑO VISUAL PROFESIONAL (CSS PERSONALIZADO) ---
-# He aplicado un degradado diagonal de fondo para toda la página (izquierda->derecha i abajo)
-# Y un estilo oscuro metálico para el menú lateral basado en el logo.
+# --- 2. DISEÑO VISUAL (DEGRADADO DIAGONAL) ---
 st.markdown(
     """
     <style>
-    /* Degradado Diagonal para toda la página */
+    /* Degradado de arriba-izquierda hacia abajo-derecha */
     .stApp {
-        background-image: linear-gradient(135deg, #f8f9fa 0%, #e1e7ec 50%, #bac2cb 100%);
+        background: linear-gradient(135deg, #ced4da 0%, #e9ecef 40%, #ffffff 100%);
         background-attachment: fixed;
     }
 
-    /* Estilo del Sidebar (Menú Lateral) */
+    /* Estilo del menú lateral (Sidebar) */
     [data-testid="stSidebar"] {
-        background-image: linear-gradient(180deg, #2c3e50 0%, #1a2533 100%);
+        background-color: #212529;
         color: white !important;
     }
     
-    /* Asegurar que los textos del sidebar sean blancos */
-    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
-    [data-testid="stSidebar"] .stAlert p {
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
         color: white !important;
     }
 
-    /* Enmascaramiento circular para el logo rectangular proporcionado */
-    [data-testid="stSidebar"] img {
-        border-radius: 50%;
-        border: 4px solid #f8f9fa60;
-        margin-top: 1rem;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-    }
-    
-    /* Estilos del menú radio sidebar */
-    [data-testid="stSidebarNav"] li {
-        margin-left: 0.5rem;
-    }
+    /* Estilo de botones de navegación */
     div[role="radiogroup"] label {
         color: white !important;
-        font-weight: 500;
-    }
-    div[role="radiogroup"] label:hover {
-        background-color: #f8f9fa20;
+        background-color: rgba(255, 255, 255, 0.05);
+        margin-bottom: 5px;
         border-radius: 5px;
+        padding: 10px;
     }
 
-    /* Estilo de los formularios y tablas principales */
-    [data-testid="stHeader"], [data-testid="stForm"] {
+    /* Estilo para los cuadros blancos de contenido */
+    [data-testid="stHeader"], .stForm, .stDataFrame {
         background-color: white;
-        padding: 1.5rem;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        margin-bottom: 1rem;
-    }
-    
-    /* Encabezados oscuros para contraste */
-    [data-testid="stHeader"] h1 {
-        color: #1a2533;
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 5px 5px 15px rgba(0,0,0,0.05);
     }
     </style>
     """,
@@ -86,30 +64,31 @@ if "autenticado" not in st.session_state:
 if "config_autenticado" not in st.session_state:
     st.session_state.config_autenticado = False
 
+# Nombre exacto del archivo que subiste
+NOMBRE_LOGO = "Logo moderno claro.jpg"
+
 def login():
     if not st.session_state.autenticado:
-        c_p1, c_p2, c_p3 = st.columns([1, 2, 1])
-        with c_p2:
-            st.markdown("<br>", unsafe_allow_html=True)
-            try:
-                # Intenta cargar el logo centrado si existe
-                st.image("logo.png", width=300, use_column_width=True)
-            except: pass
+        c1, c2, c3 = st.columns([1, 2, 1])
+        with c2:
+            st.markdown("<br><br>", unsafe_allow_html=True)
+            if os.path.exists(NOMBRE_LOGO):
+                st.image(NOMBRE_LOGO, use_container_width=True)
             
-            st.title("🏭 Sistema Control Inventario GUILLÉN")
-            st.subheader("Acceso Restringido")
-            clave = st.text_input("Ingrese la clave de acceso", type="password", key="login_key")
+            st.title("🏭 Inventario GUILLÉN")
+            st.subheader("Acceso al Sistema")
+            clave = st.text_input("Contraseña", type="password", key="main_login")
             
-            if st.button("Entrar", type="primary", use_container_width=True):
+            if st.button("Ingresar", type="primary", use_container_width=True):
                 if clave == "Tubos2026":
                     st.session_state.autenticado = True
                     st.rerun() 
                 else:
-                    st.error("❌ Clave incorrecta. Inténtelo de nuevo.")
+                    st.error("❌ Clave incorrecta")
         return False
     return True
 
-# --- 4. FUNCIONES DE BASE DE DATOS Y RESPALDO ---
+# --- 4. BASE DE DATOS ---
 def obtener_fecha_ecuador():
     tz_ecuador = timezone(timedelta(hours=-5))
     return datetime.now(tz_ecuador).date()
@@ -128,8 +107,8 @@ def init_db():
     
     c.execute("SELECT COUNT(*) FROM diametros")
     if c.fetchone()[0] == 0:
-        diametros_iniciales = [("10 cm", 0.0), ("15 cm", 0.0), ("20 cm", 0.0), ("30 cm", 0.0), ("50 cm", 0.0), ("100 cm", 0.0)]
-        c.executemany("INSERT INTO diametros (medida, precio) VALUES (?,?)", diametros_iniciales)
+        iniciales = [("10 cm", 0.0), ("15 cm", 0.0), ("20 cm", 0.0), ("30 cm", 0.0), ("50 cm", 0.0), ("100 cm", 0.0)]
+        c.executemany("INSERT INTO diametros (medida, precio) VALUES (?,?)", iniciales)
     conn.commit()
     conn.close()
 
@@ -154,7 +133,6 @@ def ejecutar_respaldo_total():
             "Clientes": [df_c.columns.tolist()] + df_c.astype(str).values.tolist()
         }
         requests.post(URL_GOOGLE, json=payload, timeout=25)
-        st.toast("✅ Respaldo total completado en la nube.")
     except: pass
 
 def obtener_diametros():
@@ -169,211 +147,143 @@ def obtener_clientes():
     conn.close()
     return ["Seleccione Cliente..."] + df['nombre'].tolist()
 
-# --- 5. FLUJO PRINCIPAL ---
+# --- 5. CUERPO DE LA APP ---
 if login():
-    st.sidebar.markdown("<br>", unsafe_allow_html=True) # Espacio arriba
-    
-    # Intenta cargar el logo en el sidebar. Requiere subir logo.png a GitHub
-    if os.path.exists("logo.png"):
-        st.sidebar.image("logo.png")
+    # Mostrar logo en la parte superior del menú izquierdo
+    if os.path.exists(NOMBRE_LOGO):
+        st.sidebar.image(NOMBRE_LOGO)
     else:
-        st.sidebar.warning("⚠️ Sube archivo logo.png para personalizar.")
-        st.sidebar.title("🏭 GUILLÉN TUBOS")
-    
-    if st.sidebar.button("Cerrar Sesión", use_container_width=True):
+        st.sidebar.title("GUILLÉN")
+
+    if st.sidebar.button("Cerrar Sesión"):
         st.session_state.autenticado = False
         st.session_state.config_autenticado = False
         st.rerun()
-    st.sidebar.divider()
     
-    menu = st.sidebar.radio("Navegación", ["📊 Resumen de Patio", "🧱 Fabricación Diaria", "📝 Pedidos y Ventas", "🚚 Despachos", "⚙️ Configuración"])
+    st.sidebar.divider()
+    menu = st.sidebar.radio("MENÚ PRINCIPAL", ["📊 Resumen de Patio", "🧱 Fabricación Diaria", "📝 Pedidos y Ventas", "🚚 Despachos", "⚙️ Configuración"])
 
     if menu != "Configuración":
         st.session_state.config_autenticado = False
 
-    DIAMETROS_DB = obtener_diametros()
-    CLIENTES_DB = obtener_clientes()
+    DIAM_DB = obtener_diametros()
+    CLI_DB = obtener_clientes()
 
     if menu == "📊 Resumen de Patio":
-        st.header("📊 Patio de Tubos GUILLÉN - Inventario Hoy")
-        st.info("Próximamente: Indicadores de stock en tiempo real.")
+        st.header("📊 Estado Actual del Inventario")
+        st.info("Aquí aparecerá el resumen de tubos disponibles próximamente.")
 
     elif menu == "🧱 Fabricación Diaria":
-        st.header("🧱 Registrar Producción de Fábrica")
-        with st.form("form_produccion"):
+        st.header("🧱 Registro de Producción")
+        with st.form("f_prod"):
             c1, c2, c3 = st.columns(3)
-            fecha_p = c1.date_input("Fecha de Fabricación", obtener_fecha_ecuador())
-            diam_p = c2.selectbox("Diámetro del Tubo", DIAMETROS_DB)
-            cant_p = c3.number_input("Cantidad Fabricada", min_value=1, step=1)
-            if st.form_submit_button("Guardar Producción", type="primary"):
-                if diam_p != "Seleccione...":
-                    conn = get_connection(); conn.execute("INSERT INTO produccion (fecha, diametro, cantidad) VALUES (?,?,?)", (fecha_p.strftime("%Y-%m-%d"), diam_p, cant_p)); conn.commit(); conn.close()
-                    st.success("✅ Guardado"); time.sleep(1); st.rerun()
+            f_p = c1.date_input("Fecha", obtener_fecha_ecuador())
+            d_p = c2.selectbox("Diámetro", DIAM_DB)
+            n_p = c3.number_input("Cantidad", min_value=1, step=1)
+            if st.form_submit_button("Guardar Fabricación", type="primary"):
+                if d_p != "Seleccione...":
+                    conn = get_connection(); conn.execute("INSERT INTO produccion (fecha, diametro, cantidad) VALUES (?,?,?)", (f_p.strftime("%Y-%m-%d"), d_p, n_p)); conn.commit(); conn.close()
+                    st.success("✅ Datos guardados")
+                    time.sleep(1); st.rerun()
 
     elif menu == "📝 Pedidos y Ventas":
-        st.header("📝 Nuevo Pedido de Cliente")
-        with st.form("form_pedidos"):
+        st.header("📝 Registro de Pedidos")
+        with st.form("f_ped"):
             c1, c2 = st.columns(2)
-            fecha_v = c1.date_input("Fecha del Pedido", obtener_fecha_ecuador())
-            cli_v = c2.selectbox("Cliente", CLIENTES_DB)
+            f_v = c1.date_input("Fecha", obtener_fecha_ecuador())
+            cl_v = c2.selectbox("Cliente", CLI_DB)
             c3, c4 = st.columns(2)
-            diam_v = c3.selectbox("Diámetro", DIAMETROS_DB)
-            cant_v = c4.number_input("Cantidad Total Comprada", min_value=1, step=1)
-            obs = st.text_area("Información adicional")
+            di_v = c3.selectbox("Tubo", DIAM_DB)
+            ca_v = c4.number_input("Cantidad Solicitada", min_value=1, step=1)
+            ob = st.text_area("Notas del Pedido")
             if st.form_submit_button("Crear Pedido", type="primary"):
-                if diam_v != "Seleccione..." and cli_v != "Seleccione Cliente...":
-                    conn = get_connection(); conn.execute("INSERT INTO pedidos (fecha, cliente, diametro, cantidad_total, estado, observaciones) VALUES (?,?,?,?,?,?)", (fecha_v.strftime("%Y-%m-%d"), cli_v, diam_v, cant_v, "Pendiente", obs)); conn.commit(); conn.close()
-                    st.success("✅ Pedido Creado"); time.sleep(1); st.rerun()
+                if di_v != "Seleccione..." and cl_v != "Seleccione Cliente...":
+                    conn = get_connection(); conn.execute("INSERT INTO pedidos (fecha, cliente, diametro, cantidad_total, estado, observaciones) VALUES (?,?,?,?,?,?)", (f_v.strftime("%Y-%m-%d"), cl_v, di_v, ca_v, "Pendiente", ob)); conn.commit(); conn.close()
+                    st.success("✅ Pedido registrado"); time.sleep(1); st.rerun()
 
     elif menu == "🚚 Despachos":
-        st.header("🚚 Registrar Salida (Carga de Camiones)")
-        st.info("Próximamente: Módulo de despachos parciales.")
+        st.header("🚚 Control de Entregas")
+        st.info("Módulo para despachar tubos por camión próximamente.")
 
     elif menu == "⚙️ Configuración":
-        st.header("⚙️ Configuración y Administración de Datos Base")
-        
-        # Validación de clave secundaria para administración
+        st.header("⚙️ Administración de Datos")
         if not st.session_state.config_autenticado:
-            st.warning("⚠️ Esta área requiere permisos de administrador.")
-            with st.form("auth_admin"):
-                clave_adm = st.text_input("Ingrese la clave de administrador (Misma que al ingreso)", type="password")
-                if st.form_submit_button("Desbloquear Configuración", type="primary"):
-                    if clave_adm == "Tubos2026":
+            with st.form("admin_lock"):
+                cl_adm = st.text_input("Clave de Administrador", type="password")
+                if st.form_submit_button("Desbloquear"):
+                    if cl_adm == "Tubos2026":
                         st.session_state.config_autenticado = True; st.rerun()
                     else: st.error("Clave incorrecta")
         else:
-            tab_diam, tab_cli = st.tabs(["📏 Medidas y Precios", "👥 Directorio de Clientes"])
+            t1, t2 = st.tabs(["📏 Diámetros y Precios", "👥 Clientes"])
             
-            with tab_diam:
+            with t1:
                 conn = get_connection()
                 df_d = pd.read_sql("SELECT id, medida as Medida, precio as Precio FROM diametros ORDER BY id ASC", conn)
+                st.write("**Catálogo de Productos**")
+                st.dataframe(df_d.drop(columns=['id']), use_container_width=True, hide_index=True)
                 
-                # Diseño de tres columnas: Lista, Agregar/Corregir, Borrar
-                c_ta, c_form, c_del = st.columns([2, 1.5, 1])
-                
-                with c_ta:
-                    st.markdown("**Lista Actual**")
+                c_a, c_e, c_b = st.columns(3)
+                with c_a:
+                    with st.form("a_d", clear_on_submit=True):
+                        st.write("**Nuevo**")
+                        n_m = st.text_input("Nombre Medida")
+                        n_pr = st.number_input("Precio", min_value=0.0)
+                        if st.form_submit_button("Guardar"):
+                            if n_m: conn.execute("INSERT INTO diametros (medida, precio) VALUES (?,?)", (n_m, n_pr)); conn.commit(); st.rerun()
+                with c_e:
                     if not df_d.empty:
-                        df_d_disp = df_d.copy()
-                        df_d_disp['Precio'] = df_d_disp['Precio'].apply(lambda x: f"${x:.2f}")
-                        st.dataframe(df_d_disp.drop(columns=['id']), use_container_width=True, hide_index=True)
-                    else:
-                        st.info("No hay medidas registradas.")
-                
-                with c_form:
-                    # Sistema unificado para agregar o editar
-                    with st.form("add_edit_diam", clear_on_submit=True):
-                        if not df_d.empty:
-                            st.markdown("**Añadir o Corregir Medida**")
-                            d_disp = pd.read_sql("SELECT medida FROM diametros ORDER BY id ASC", conn)['medida'].tolist()
-                            opc_edit = ["-- NUEVO --"] + d_disp
-                            sel_d = st.selectbox("Medida a gestionar", opc_edit)
-                            
-                            # Carga datos si se selecciona una existente
-                            pre_m = sel_d if sel_d != "-- NUEVO --" else ""
-                            pre_p = 0.0
-                            if sel_d != "-- NUEVO --":
-                                pre_p = df_d[df_d['Medida'] == sel_d]['Precio'].values[0]
-                                
-                            f_med = st.text_input("Medida / Diámetro Correcto", value=pre_m)
-                            f_pre = st.number_input("Precio ($) Correcto", value=float(pre_p), min_value=0.0)
-                            
-                            if st.form_submit_button("Guardar Cambios", type="primary"):
-                                if f_med:
-                                    if sel_d == "-- NUEVO --":
-                                        # Agregar
-                                        conn.execute("INSERT INTO diametros (medida, precio) VALUES (?,?)", (f_med.strip(), f_pre))
-                                        st.success("Guardado")
-                                    else:
-                                        # Actualizar base + historial de movimientos (integridad de datos)
-                                        conn.execute("UPDATE diametros SET medida=?, precio=? WHERE medida=?", (f_med.strip(), f_pre, sel_d))
-                                        conn.execute("UPDATE produccion SET diametro=? WHERE diametro=?", (f_med.strip(), sel_d))
-                                        conn.execute("UPDATE pedidos SET diametro=? WHERE diametro=?", (f_med.strip(), sel_d))
-                                        st.success("Actualizado")
-                                    conn.commit(); time.sleep(0.5); st.rerun()
-                                else:
-                                    st.error("Nombre de medida es obligatorio.")
-                        else:
-                            # Caso inicial si está vacía
-                            st.markdown("**Agregar Primera Medida**")
-                            f_med = st.text_input("Diámetro (Ej: 80 cm)")
-                            f_pre = st.number_input("Precio ($)", min_value=0.0)
-                            if st.form_submit_button("Guardar"):
-                                if f_med:
-                                    conn.execute("INSERT INTO diametros (medida, precio) VALUES (?,?)", (f_med.strip(), f_pre))
+                        with st.form("e_d"):
+                            st.write("**Editar**")
+                            sel = st.selectbox("Elegir", df_d['Medida'].tolist())
+                            new_m = st.text_input("Nuevo Nombre")
+                            new_p = st.number_input("Nuevo Precio", min_value=0.0)
+                            if st.form_submit_button("Actualizar"):
+                                if new_m:
+                                    conn.execute("UPDATE diametros SET medida=?, precio=? WHERE medida=?", (new_m, new_p, sel))
+                                    conn.execute("UPDATE produccion SET diametro=? WHERE diametro=?", (new_m, sel))
+                                    conn.execute("UPDATE pedidos SET diametro=? WHERE diametro=?", (new_m, sel))
                                     conn.commit(); st.rerun()
-
-                with c_del:
-                    # Columna exclusiva para borrado seguro
+                with c_b:
                     if not df_d.empty:
-                        with st.form("del_d"):
-                            st.markdown("**Sistema de Borrado**")
-                            d_del = st.selectbox("Medida a eliminar permanentemente", list(dict(zip(df_d['Medida'], df_d['id'])).keys()))
-                            # Advertencia de integridad
-                            st.caption("⚠️ Ojo: El borrado NO eliminará registros de patio antiguos para no perder historial.")
-                            if st.form_submit_button("BORRAR MEDIDA", type="secondary"):
-                                conn.execute("DELETE FROM diametros WHERE medida=?", (d_del,))
-                                conn.commit(); time.sleep(0.5); st.rerun()
+                        with st.form("b_d"):
+                            st.write("**Borrar**")
+                            del_s = st.selectbox("Eliminar", df_d['Medida'].tolist())
+                            if st.form_submit_button("Borrar"):
+                                conn.execute("DELETE FROM diametros WHERE medida=?", (del_s,)); conn.commit(); st.rerun()
                 conn.close()
 
-            with tab_cli:
+            with t2:
                 conn = get_connection()
-                df_c = pd.read_sql("SELECT id, nombre as Cliente, telefono as Teléfono FROM clientes ORDER BY nombre ASC", conn)
+                df_c = pd.read_sql("SELECT id, nombre as Nombre, telefono as Telefono FROM clientes ORDER BY nombre ASC", conn)
+                st.write("**Directorio de Clientes**")
+                st.dataframe(df_c.drop(columns=['id']), use_container_width=True, hide_index=True)
                 
-                # Diseño unificado de tres columnas
-                c_ta_c, c_form_c, c_del_c = st.columns([2, 1.5, 1])
-                
-                with c_ta_c:
-                    st.markdown("**Directorio Histórico**")
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    with st.form("a_c", clear_on_submit=True):
+                        st.write("**Registrar**")
+                        nn = st.text_input("Nombre/Empresa")
+                        nt = st.text_input("Teléfono")
+                        if st.form_submit_button("Guardar"):
+                            if nn: conn.execute("INSERT INTO clientes (nombre, telefono) VALUES (?,?)", (nn, nt)); conn.commit(); st.rerun()
+                with c2:
                     if not df_c.empty:
-                        st.dataframe(df_c.drop(columns=['id']), use_container_width=True, hide_index=True)
-                    else:
-                        st.info("El directorio está vacío.")
-                
-                with c_form_c:
-                    # Sistema unificado para agregar o editar clientes
-                    with st.form("add_edit_cli", clear_on_submit=True):
-                        if not df_c.empty:
-                            st.markdown("**Añadir o Corregir Cliente**")
-                            c_disp = pd.read_sql("SELECT nombre FROM clientes ORDER BY nombre ASC", conn)['nombre'].tolist()
-                            opc_edit_c = ["-- NUEVO --"] + c_disp
-                            sel_c = st.selectbox("Cliente a gestionar", opc_edit_c)
-                            
-                            pre_c = sel_c if sel_c != "-- NUEVO --" else ""
-                            pre_t = ""
-                            if sel_c != "-- NUEVO --":
-                                pre_t = df_c[df_c['Cliente'] == sel_c]['Teléfono'].values[0]
-                                
-                            f_c = st.text_input("Nombre o Empresa Correcta", value=pre_c)
-                            f_t = st.text_input("Teléfono Correcto", value=pre_t)
-                            
-                            if st.form_submit_button("Guardar Cambios", type="primary"):
-                                if f_c:
-                                    if sel_c == "-- NUEVO --":
-                                        conn.execute("INSERT INTO clientes (nombre, telefono) VALUES (?,?)", (f_c.strip(), f_t.strip()))
-                                        st.success("Guardado")
-                                    else:
-                                        # Actualizar base + historial de pedidos antigua (integridad)
-                                        conn.execute("UPDATE clientes SET nombre=?, telefono=? WHERE nombre=?", (f_c.strip(), f_t.strip(), sel_c))
-                                        conn.execute("UPDATE pedidos SET cliente=? WHERE cliente=?", (f_c.strip(), sel_c))
-                                        st.success("Actualizado")
-                                    conn.commit(); time.sleep(0.5); st.rerun()
-                        else:
-                            st.markdown("**Registrar Primer Cliente**")
-                            f_c = st.text_input("Nombre / Empresa")
-                            f_t = st.text_input("Teléfono")
-                            if st.form_submit_button("Registrar"):
-                                if f_c:
-                                    conn.execute("INSERT INTO clientes (nombre, telefono) VALUES (?,?)", (f_c.strip(), f_t.strip()))
+                        with st.form("e_c"):
+                            st.write("**Corregir**")
+                            sel_c = st.selectbox("Elegir Cliente", df_c['Nombre'].tolist())
+                            new_n = st.text_input("Nombre Correcto")
+                            new_t = st.text_input("Teléfono Correcto")
+                            if st.form_submit_button("Actualizar"):
+                                if new_n:
+                                    conn.execute("UPDATE clientes SET nombre=?, telefono=? WHERE nombre=?", (new_n, new_t, sel_c))
+                                    conn.execute("UPDATE pedidos SET cliente=? WHERE cliente=?", (new_n, sel_c))
                                     conn.commit(); st.rerun()
-                
-                with c_del_c:
+                with c3:
                     if not df_c.empty:
-                        with st.form("del_c"):
-                            st.markdown("**Sistema de Borrado**")
-                            c_del_s = st.selectbox("Cliente a eliminar", list(dict(zip(df_c['Cliente'], df_c['id'])).keys()))
-                            st.caption("⚠️ Ojo: Solo lo quita de la lista de configuración, NO de pedidos viejos.")
-                            if st.form_submit_button("BORRAR CLIENTE", type="secondary"):
-                                conn.execute("DELETE FROM clientes WHERE nombre=?", (c_del_s,))
-                                conn.commit(); time.sleep(0.5); st.rerun()
+                        with st.form("b_c"):
+                            st.write("**Borrar**")
+                            del_c = st.selectbox("Eliminar Cliente", df_c['Nombre'].tolist())
+                            if st.form_submit_button("Borrar"):
+                                conn.execute("DELETE FROM clientes WHERE nombre=?", (del_c,)); conn.commit(); st.rerun()
                 conn.close()
