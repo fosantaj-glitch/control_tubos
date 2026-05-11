@@ -14,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. DISEÑO VISUAL (DEGRADADO DIAGONAL) ---
+# --- 2. DISEÑO VISUAL ---
 st.markdown(
     """
     <style>
@@ -52,8 +52,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# URL_GOOGLE = "PEGA_AQUI_TU_URL_DE_APPS_SCRIPT" # Avísame cuando la tengas para activarlo
-
 # --- 3. SISTEMA DE SEGURIDAD ---
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
@@ -76,8 +74,7 @@ def login():
                 if clave == "Tubos2026":
                     st.session_state.autenticado = True
                     st.rerun() 
-                else:
-                    st.error("❌ Clave incorrecta")
+                else: st.error("❌ Clave incorrecta")
         return False
     return True
 
@@ -103,7 +100,7 @@ def init_db():
         conn.execute("INSERT INTO configuracion (parametro, valor) VALUES ('iva', 15.0)")
 
     if conn.execute("SELECT COUNT(*) FROM diametros").fetchone()[0] == 0:
-        iniciales = [("10 cm", "Estandar", 0.0), ("15 cm", "Estandar", 0.0), ("20 cm", "Estandar", 0.0), ("30 cm", "Estandar", 0.0), ("50 cm", "Estandar", 0.0), ("100 cm", "Estandar", 0.0)]
+        iniciales = [("500 mm", "Estandar", 0.0), ("600 mm", "Estandar", 0.0), ("700 mm", "Estandar", 0.0)]
         c.executemany("INSERT INTO diametros (medida, tipo, precio) VALUES (?,?,?)", iniciales)
     
     conn.commit()
@@ -118,14 +115,13 @@ def obtener_iva():
     return res[0] if res else 15.0
 
 def obtener_diametros():
-    """Obtiene la lista de tubos ordenada ascendentemente por diámetro numérico"""
+    """Obtiene la lista ordenada de menor a mayor (500mm, 600mm...)"""
     conn = get_connection()
     df = pd.read_sql("SELECT medida, tipo FROM diametros", conn)
     conn.close()
     if not df.empty:
-        # Extraer números para ordenar (ej: '10 cm' -> 10.0)
         df['num'] = df['medida'].str.extract('(\d+)').astype(float)
-        df = df.sort_values('num')
+        df = df.sort_values('num', ascending=True)
         return ["Seleccione..."] + [f"{r['medida']} ({r['tipo']})" if r['tipo'] else r['medida'] for _, r in df.iterrows()]
     return ["Seleccione..."]
 
@@ -207,24 +203,23 @@ if login():
             
             with t1:
                 conn = get_connection()
-                df_d = pd.read_sql("SELECT id, medida as Medida, tipo as Tipo, precio as [Valor Unitario] FROM diametros", conn)
+                df_d = pd.read_sql("SELECT id as ID, medida as Diámetro, tipo as Tipo, precio as [Valor Unitario] FROM diametros", conn)
                 if not df_d.empty:
-                    # Ordenar numéricamente antes de mostrar
-                    df_d['num_sort'] = df_d['Medida'].str.extract('(\d+)').astype(float)
-                    df_d = df_d.sort_values('num_sort')
+                    df_d['num_sort'] = df_d['Diámetro'].str.extract('(\d+)').astype(float)
+                    df_d = df_d.sort_values('num_sort', ascending=True)
                     
                     df_d['Precio más IVA'] = df_d['Valor Unitario'] * (1 + (VALOR_IVA / 100))
                     df_v = df_d.copy()
                     df_v['Valor Unitario'] = df_v['Valor Unitario'].apply(lambda x: f"${x:.2f}")
                     df_v['Precio más IVA'] = df_v['Precio más IVA'].apply(lambda x: f"${x:.2f}")
-                    st.write(f"**Catálogo de Productos (Ordenado por diámetro - IVA: {VALOR_IVA}%)**")
-                    st.dataframe(df_v.drop(columns=['id', 'num_sort']), use_container_width=True, hide_index=True)
+                    st.write(f"**Catálogo de Productos (Orden Ascendente - IVA: {VALOR_IVA}%)**")
+                    st.dataframe(df_v.drop(columns=['num_sort']), use_container_width=True, hide_index=True)
                 
                 c_a, c_e, c_b = st.columns(3)
                 with c_a:
                     with st.form("a_d", clear_on_submit=True):
                         st.write("**Nuevo Producto**")
-                        n_m, n_t = st.text_input("Medida"), st.text_input("Tipo")
+                        n_m, n_t = st.text_input("Medida (Ej: 500 mm)"), st.text_input("Tipo")
                         n_pr = st.number_input("Valor Unitario", min_value=0.0, value=None, placeholder="0.00")
                         if st.form_submit_button("Guardar"):
                             if n_m and n_pr is not None: 
@@ -233,8 +228,7 @@ if login():
                     if not df_d.empty:
                         with st.form("e_d"):
                             st.write("**Editar Producto**")
-                            # El menú de edición ahora también sale ordenado
-                            opciones_ed = df_d['Medida'].tolist()
+                            opciones_ed = df_d['Diámetro'].tolist()
                             sel = st.selectbox("Elegir Medida", opciones_ed)
                             new_m, new_t = st.text_input("Nuevo Nombre Medida"), st.text_input("Nuevo Tipo")
                             new_p = st.number_input("Nuevo Valor Unitario", min_value=0.0, value=None, placeholder="0.00")
@@ -246,7 +240,7 @@ if login():
                     if not df_d.empty:
                         with st.form("b_d"):
                             st.write("**Borrar**")
-                            del_s = st.selectbox("Eliminar", df_d['Medida'].tolist())
+                            del_s = st.selectbox("Eliminar", df_d['Diámetro'].tolist())
                             if st.form_submit_button("Borrar"):
                                 conn.execute("DELETE FROM diametros WHERE medida=?", (del_s,)); conn.commit(); st.rerun()
                 conn.close()
