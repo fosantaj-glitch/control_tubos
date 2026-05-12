@@ -2,77 +2,21 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 import requests
-from datetime import datetime, date, timezone, timedelta
+from datetime import datetime, timezone, timedelta
 import time
-import os
 import math
 
-# --- 1. CONFIGURACIÓN DE LA PÁGINA ---
-st.set_page_config(
-    page_title="Control de Tubos - GUILLÉN",
-    page_icon="🏭",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# --- 1. CONFIGURACIÓN ---
+st.set_page_config(page_title="Control de Tubos - GUILLÉN", page_icon="🏭", layout="wide", initial_sidebar_state="expanded")
 
-# --- 2. DISEÑO VISUAL ---
+# --- 2. DISEÑO VISUAL LIMPIO (Sin CSS basura) ---
 st.markdown(
     """
     <style>
-    /* Fondo principal */
     .stApp {
         background: linear-gradient(135deg, #ced4da 0%, #e9ecef 40%, #ffffff 100%);
         background-attachment: fixed;
     }
-    
-    /* Fondo del menú lateral */
-    [data-testid="stSidebar"] {
-        background-color: #212529 !important;
-    }
-
-    /* FORZAR LETRAS BLANCAS EN EL MENÚ LATERAL */
-    [data-testid="stSidebar"] p, 
-    [data-testid="stSidebar"] span, 
-    [data-testid="stSidebar"] label, 
-    [data-testid="stSidebar"] h1, 
-    [data-testid="stSidebar"] h2, 
-    [data-testid="stSidebar"] h3,
-    div[role="radiogroup"] label {
-        color: #ffffff !important;
-    }
-
-    /* FORZAR BOTONES BLANCOS EN EL MENÚ LATERAL */
-    section[data-testid="stSidebar"] .stButton button {
-        background-color: #ffffff !important;
-        border: 2px solid #adb5bd !important;
-        border-radius: 8px !important;
-        padding: 10px !important;
-        width: 100% !important;
-        display: block !important;
-    }
-    section[data-testid="stSidebar"] .stButton button p {
-        color: #000000 !important;
-        font-weight: bold !important;
-    }
-    section[data-testid="stSidebar"] .stButton button:hover {
-        background-color: #e9ecef !important;
-        border-color: #ffffff !important;
-    }
-
-    /* Estilo de los formularios y tablas */
-    [data-testid="stHeader"], .stForm, .stDataFrame {
-        background-color: white;
-        border-radius: 12px;
-        padding: 20px;
-        box-shadow: 5px 5px 15px rgba(0,0,0,0.05);
-    }
-    [data-testid="stSidebar"] img {
-        border-radius: 10px;
-        border: 2px solid #ffffff40;
-        margin-bottom: 20px;
-    }
-
-    /* Títulos de secciones del catálogo */
     .titulo-seccion {
         background-color: #f1f3f5;
         color: #5c636a;
@@ -88,32 +32,26 @@ st.markdown(
         border-bottom: 2px solid #8c9296;
     }
     </style>
-    """,
-    unsafe_allow_html=True
+    """, unsafe_allow_html=True
 )
 
 URL_GOOGLE = "https://script.google.com/macros/s/AKfycbyCLgPnnxfeizslT_9ySWcMlYtwRpogD7S_NBT2xAgtMZTM94tYtbUVtTtOXSrpMgss/exec"
 
-# --- 3. SISTEMA DE SEGURIDAD ---
-if "autenticado" not in st.session_state:
-    st.session_state.autenticado = False
-if "config_autenticado" not in st.session_state:
-    st.session_state.config_autenticado = False
-if "datos_cargados" not in st.session_state:
-    st.session_state.datos_cargados = False
-
-NOMBRE_LOGO = "logo.jpg"
+# --- 3. SEGURIDAD Y ESTADOS ---
+if "autenticado" not in st.session_state: st.session_state.autenticado = False
+if "config_autenticado" not in st.session_state: st.session_state.config_autenticado = False
+if "datos_cargados" not in st.session_state: st.session_state.datos_cargados = False
 
 def login():
     if not st.session_state.autenticado:
         c1, c2, c3 = st.columns([1, 2, 1])
         with c2:
             st.markdown("<br><br>", unsafe_allow_html=True)
-            try: st.image(NOMBRE_LOGO, use_container_width=True)
+            try: st.image("logo.jpg", use_container_width=True)
             except: pass
             st.title("🏭 Inventario GUILLÉN")
             st.subheader("Acceso al Sistema")
-            clave = st.text_input("Contraseña", type="password", key="main_login")
+            clave = st.text_input("Contraseña", type="password")
             if st.button("Ingresar", type="primary", use_container_width=True):
                 if clave == "Tubos2026":
                     st.session_state.autenticado = True
@@ -122,7 +60,7 @@ def login():
         return False
     return True
 
-# --- 4. BASE DE DATOS Y RESPALDO ---
+# --- 4. BASE DE DATOS Y CONEXIÓN A GOOGLE ---
 def obtener_fecha_ecuador():
     tz_ecuador = timezone(timedelta(hours=-5))
     return datetime.now(tz_ecuador).date()
@@ -136,67 +74,57 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS produccion (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, diametro TEXT, cantidad INTEGER)''')
     c.execute('''CREATE TABLE IF NOT EXISTS pedidos (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, cliente TEXT, diametro TEXT, cantidad_total INTEGER, estado TEXT, observaciones TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS entregas (id INTEGER PRIMARY KEY AUTOINCREMENT, pedido_id INTEGER, fecha TEXT, cantidad_entregada INTEGER, FOREIGN KEY(pedido_id) REFERENCES pedidos(id))''')
-    
     c.execute('''CREATE TABLE IF NOT EXISTS diametros (id INTEGER PRIMARY KEY AUTOINCREMENT, medida TEXT, tipo TEXT, seccion TEXT, precio REAL)''')
     try: c.execute("ALTER TABLE diametros ADD COLUMN seccion TEXT")
     except: pass
     c.execute("UPDATE diametros SET seccion = 'SIN ARMADURA' WHERE seccion IS NULL OR seccion = ''")
-
     c.execute('''CREATE TABLE IF NOT EXISTS clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, telefono TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS configuracion (id INTEGER PRIMARY KEY, parametro TEXT, valor REAL)''')
-    
     if conn.execute("SELECT COUNT(*) FROM configuracion WHERE parametro='iva'").fetchone()[0] == 0:
         conn.execute("INSERT INTO configuracion (parametro, valor) VALUES ('iva', 15.0)")
-    
-    conn.commit()
-    conn.close()
+    conn.commit(); conn.close()
 
 init_db()
 
-def descargar_datos_automaticamente():
-    """Conecta a Google Drive y restaura la info al abrir la app"""
+def descargar_datos():
+    """Descarga datos de Google Drive y los inyecta de forma segura en SQLite"""
     try:
-        payload = {"accion": "leer"}
-        response = requests.post(URL_GOOGLE, json=payload, timeout=30)
+        response = requests.post(URL_GOOGLE, json={"accion": "leer"}, timeout=30)
         if response.status_code == 200:
             data = response.json()
             if data.get("resultado") == "éxito":
-                tablas_datos = data.get("datos", {})
+                tablas = data.get("datos", {})
                 conn = get_connection()
-                cursor = conn.cursor()
                 
-                mapeo_tablas = [
-                    ("Produccion", "produccion"), ("Pedidos", "pedidos"), 
-                    ("Entregas", "entregas"), ("Diametros", "diametros"), 
-                    ("Clientes", "clientes"), ("Configuracion", "configuracion")
-                ]
+                mapeo = [("Produccion", "produccion"), ("Pedidos", "pedidos"), ("Entregas", "entregas"), 
+                         ("Diametros", "diametros"), ("Clientes", "clientes"), ("Configuracion", "configuracion")]
                 
-                hay_datos = False
-                for sheet_name, db_name in mapeo_tablas:
-                    if sheet_name in tablas_datos and len(tablas_datos[sheet_name]) > 1:
-                        hay_datos = True
-                        headers = tablas_datos[sheet_name][0]
-                        rows = tablas_datos[sheet_name][1:]
+                for hoja, tabla_db in mapeo:
+                    if hoja in tablas and len(tablas[hoja]) > 1:
+                        headers = tablas[hoja][0]
+                        rows = tablas[hoja][1:]
                         df = pd.DataFrame(rows, columns=headers)
                         
-                        cursor.execute(f"DELETE FROM {db_name}")
-                        df.to_sql(db_name, conn, if_exists='append', index=False)
+                        # FILTRO CRÍTICO: Convierte celdas vacías de Excel en nulos de base de datos
+                        df = df.replace(r'^\s*$', None, regex=True)
                         
-                conn.commit()
-                conn.close()
+                        conn.execute(f"DELETE FROM {tabla_db}")
+                        df.to_sql(tabla_db, conn, if_exists='append', index=False)
+                        
+                conn.commit(); conn.close()
                 return True, "Datos cargados"
             else:
-                return False, "Por favor actualiza el código en Google Apps Script con la acción 'leer'."
-        else:
-            return False, f"Error HTTP {response.status_code}"
+                return False, "Google Script no tiene la función de leer."
+        return False, f"Error HTTP {response.status_code}"
     except Exception as e:
-        return False, str(e)
+        return False, f"Fallo al procesar datos: {str(e)}"
 
-def ejecutar_respaldo_nube():
+def subir_datos():
+    """Sube datos a Google Drive"""
     try:
         conn = get_connection()
         payload = {"accion": "sobreescribir"}
-        tablas_config = {
+        tablas = {
             "Produccion": "SELECT id, fecha, diametro, cantidad FROM produccion",
             "Pedidos": "SELECT id, fecha, cliente, diametro, cantidad_total, estado, observaciones FROM pedidos",
             "Entregas": "SELECT id, pedido_id, fecha, cantidad_entregada FROM entregas",
@@ -204,7 +132,7 @@ def ejecutar_respaldo_nube():
             "Clientes": "SELECT id, nombre, telefono FROM clientes",
             "Configuracion": "SELECT id, parametro, valor FROM configuracion"
         }
-        for nombre, query in tablas_config.items():
+        for nombre, query in tablas.items():
             df = pd.read_sql(query, conn).fillna("")
             payload[nombre] = [df.columns.tolist()] + df.values.tolist()
         conn.close()
@@ -212,7 +140,7 @@ def ejecutar_respaldo_nube():
         return response.status_code == 200
     except: return False
 
-
+# --- VARIABLES GLOBALES ---
 SECCIONES = ["SIN ARMADURA", "HORMIGON ARMADO", "CON ESPIGA", "TUBERIA CLASE II", "TAPAS PEATONALES"]
 
 def obtener_iva():
@@ -228,7 +156,7 @@ def obtener_diametros():
     if not df.empty:
         df['num'] = df['medida'].str.extract('(\d+)').astype(float)
         df = df.sort_values('num', ascending=True)
-        return ["Seleccione..."] + [f"{r['medida']} - {r['seccion']}" for _, r in df.iterrows()]
+        return ["Seleccione..."] + [f"{r['medida']} ({r['seccion']})" for _, r in df.iterrows()]
     return ["Seleccione..."]
 
 def obtener_clientes():
@@ -237,56 +165,54 @@ def obtener_clientes():
     conn.close()
     return ["Seleccione Cliente..."] + df['nombre'].tolist()
 
-# --- 5. CUERPO DE LA APP ---
+# --- 5. INTERFAZ PRINCIPAL ---
 if login():
     
-    # ⚡ AUTO-CARGA DE DATOS (Se ejecuta solo 1 vez al iniciar)
+    # Auto-Carga al encender la app
     if not st.session_state.datos_cargados:
-        with st.spinner("📥 Cargando tu información desde TUBOS_DB..."):
-            exito, mensaje = descargar_datos_automaticamente()
+        with st.spinner("📥 Leyendo base de datos TUBOS_DB..."):
+            exito, msj = descargar_datos()
             st.session_state.datos_cargados = True
             if exito:
-                st.success("✅ Datos restaurados con éxito")
+                st.success("✅ Base de datos sincronizada")
                 time.sleep(1)
                 st.rerun()
             else:
-                st.error(f"⚠️ No se pudo cargar: {mensaje}")
-                time.sleep(3)
+                st.error(f"⚠️ Error de lectura: {msj}")
 
+    # Menú Lateral Nativo (Sin CSS forzado)
     st.sidebar.markdown("<br>", unsafe_allow_html=True)
-    try: st.sidebar.image(NOMBRE_LOGO, use_container_width=True)
+    try: st.sidebar.image("logo.jpg", use_container_width=True)
     except: st.sidebar.title("GUILLÉN")
 
-    st.sidebar.markdown("**Opciones del Sistema**")
-    
-    if st.sidebar.button("💾 RESPALDAR TUBOS_DB"):
-        with st.spinner("Sincronizando con la nube..."):
-            if ejecutar_respaldo_nube():
-                st.sidebar.success("✅ Respaldo Exitoso!")
-            else:
-                st.sidebar.error("❌ Error de respaldo")
+    st.sidebar.markdown("### ☁️ Respaldo Manual")
+    if st.sidebar.button("💾 Guardar en Google Drive", type="primary", use_container_width=True):
+        with st.spinner("Subiendo datos..."):
+            if subir_datos(): st.sidebar.success("✅ Guardado Exitoso!")
+            else: st.sidebar.error("❌ Error de guardado")
                 
-    if st.sidebar.button("🚪 CERRAR SESIÓN"):
+    if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
         st.session_state.autenticado = False
         st.session_state.config_autenticado = False
         st.rerun()
 
     st.sidebar.divider()
 
-    OP_RESUMEN, OP_PROD, OP_PEDIDOS, OP_DESPACHOS, OP_CONFIG = "📊 Resumen de Patio", "🧱 Fabricación Diaria", "📝 Pedidos y Ventas", "🚚 Despachos", "⚙️ Configuración"
-    menu = st.sidebar.radio("MENÚ PRINCIPAL", [OP_RESUMEN, OP_PROD, OP_PEDIDOS, OP_DESPACHOS, OP_CONFIG])
+    MENU = ["📊 Resumen de Patio", "🧱 Fabricación Diaria", "📝 Pedidos y Ventas", "🚚 Despachos", "⚙️ Configuración"]
+    opcion = st.sidebar.radio("MENÚ PRINCIPAL", MENU)
 
-    if menu != OP_CONFIG: st.session_state.config_autenticado = False
+    if opcion != "⚙️ Configuración": st.session_state.config_autenticado = False
 
     DIAM_DB = obtener_diametros()
     CLI_DB = obtener_clientes()
     VALOR_IVA = obtener_iva()
 
-    if menu == OP_RESUMEN:
+    # --- PANTALLAS ---
+    if opcion == MENU[0]:
         st.header("📊 Estado Actual del Inventario")
         st.info("Resumen de patio próximamente.")
 
-    elif menu == OP_PROD:
+    elif opcion == MENU[1]:
         st.header("🧱 Registro de Fabricación")
         with st.form("f_prod"):
             c1, c2, c3 = st.columns(3)
@@ -298,7 +224,7 @@ if login():
                     conn = get_connection(); conn.execute("INSERT INTO produccion (fecha, diametro, cantidad) VALUES (?,?,?)", (f_p.strftime("%Y-%m-%d"), d_p, n_p)); conn.commit(); conn.close()
                     st.success("✅ Guardado"); time.sleep(1); st.rerun()
 
-    elif menu == OP_PEDIDOS:
+    elif opcion == MENU[2]:
         st.header("📝 Registro de Pedidos")
         with st.form("f_ped"):
             c1, c2 = st.columns(2)
@@ -313,18 +239,17 @@ if login():
                     conn = get_connection(); conn.execute("INSERT INTO pedidos (fecha, cliente, diametro, cantidad_total, estado, observaciones) VALUES (?,?,?,?,?,?)", (f_v.strftime("%Y-%m-%d"), cl_v, di_v, ca_v, "Pendiente", ob)); conn.commit(); conn.close()
                     st.success("✅ Registrado"); time.sleep(1); st.rerun()
 
-    elif menu == OP_DESPACHOS:
+    elif opcion == MENU[3]:
         st.header("🚚 Control de Entregas")
         st.info("Módulo de despachos próximamente.")
 
-    elif menu == OP_CONFIG:
+    elif opcion == MENU[4]:
         st.header("⚙️ Administración de Datos")
         if not st.session_state.config_autenticado:
             with st.form("admin_lock"):
                 cl_adm = st.text_input("Clave de Administrador", type="password")
                 if st.form_submit_button("Desbloquear"):
-                    if cl_adm == "Tubos2026":
-                        st.session_state.config_autenticado = True; st.rerun()
+                    if cl_adm == "Tubos2026": st.session_state.config_autenticado = True; st.rerun()
                     else: st.error("Clave incorrecta")
         else:
             t1, t2, t3 = st.tabs(["📏 Catálogo de Productos", "👥 Clientes", "💰 Impuestos"])
@@ -346,17 +271,13 @@ if login():
                         
                         if not df_sec.empty:
                             df_mostrar = df_sec[['medida', 'Pulgadas', 'tipo', 'precio', 'Total']].rename(columns={
-                                'medida': 'Medida (mm)',
-                                'Pulgadas': 'Pulgadas (")',
-                                'tipo': 'Tipo / Detalle',
-                                'precio': 'Valor Unitario',
-                                'Total': f'Precio + {VALOR_IVA}% IVA'
-                            })
+                                'medida': 'Medida (mm)', 'Pulgadas': 'Pulgadas (")', 'tipo': 'Tipo / Detalle',
+                                'precio': 'Valor Unitario', 'Total': f'Precio + {VALOR_IVA}% IVA'})
                             df_mostrar['Valor Unitario'] = df_mostrar['Valor Unitario'].apply(lambda x: f"${x:.2f}")
                             df_mostrar[f'Precio + {VALOR_IVA}% IVA'] = df_mostrar[f'Precio + {VALOR_IVA}% IVA'].apply(lambda x: f"${x:.2f}")
                             st.table(df_mostrar.assign(index='').set_index('index'))
                         else:
-                            st.caption(f"No hay productos registrados en {sec}.")
+                            st.caption(f"No hay productos en {sec}.")
 
                 st.divider()
                 c_a, c_e, c_b = st.columns(3)
@@ -364,36 +285,31 @@ if login():
                     with st.form("a_d", clear_on_submit=True):
                         st.write("**Nuevo Producto**")
                         n_sec = st.selectbox("Sección", SECCIONES)
-                        n_m = st.text_input("Medida (mm)")
-                        n_t = st.text_input("Tipo/Detalle")
-                        n_p = st.number_input("Valor Unitario", min_value=0.0, value=None, placeholder="0.00", format="%.2f", step=0.01)
+                        n_m, n_t = st.text_input("Medida (mm)"), st.text_input("Tipo/Detalle")
+                        n_p = st.number_input("Valor Unitario", min_value=0.0, value=None, format="%.2f")
                         if st.form_submit_button("Guardar"):
-                            if n_m and n_p is not None:
-                                conn.execute("INSERT INTO diametros (medida, tipo, seccion, precio) VALUES (?,?,?,?)", (n_m.strip(), n_t.strip(), n_sec, n_p))
-                                conn.commit(); st.rerun()
+                            conn.execute("INSERT INTO diametros (medida, tipo, seccion, precio) VALUES (?,?,?,?)", (n_m.strip(), n_t.strip(), n_sec, n_p))
+                            conn.commit(); st.rerun()
                 with c_e:
                     if not df_base.empty:
                         with st.form("e_d"):
                             st.write("**Editar Producto**")
                             op_ed = {f"{r['medida']} ({r['seccion']})": r['medida'] for _, r in df_base.iterrows()}
-                            sel_key = st.selectbox("Elegir Medida", list(op_ed.keys()))
-                            sel_m = op_ed[sel_key]
-                            
+                            sel_m = op_ed[st.selectbox("Elegir Medida", list(op_ed.keys()))]
                             new_s = st.selectbox("Nueva Sección", SECCIONES)
-                            new_m = st.text_input("Nuevo Nombre Medida (mm)")
-                            new_t = st.text_input("Nuevo Tipo/Detalle")
-                            new_p = st.number_input("Nuevo Valor Unitario", min_value=0.0, value=None, placeholder="0.00", format="%.2f", step=0.01)
+                            new_m, new_t = st.text_input("Nuevo Nombre (mm)"), st.text_input("Nuevo Tipo")
+                            new_p = st.number_input("Nuevo Valor Unitario", min_value=0.0, value=None, format="%.2f")
                             if st.form_submit_button("Actualizar"):
-                                if new_m and new_p is not None:
-                                    conn.execute("UPDATE diametros SET seccion=?, medida=?, tipo=?, precio=? WHERE medida=?", (new_s, new_m, new_t, new_p, sel_m))
-                                    conn.commit(); st.rerun()
+                                conn.execute("UPDATE diametros SET seccion=?, medida=?, tipo=?, precio=? WHERE medida=?", (new_s, new_m, new_t, new_p, sel_m))
+                                conn.commit(); st.rerun()
                 with c_b:
                     if not df_base.empty:
                         with st.form("b_d"):
                             st.write("**Borrar**")
                             del_s = st.selectbox("Eliminar", df_base['medida'].unique())
                             if st.form_submit_button("Borrar"):
-                                conn.execute("DELETE FROM diametros WHERE medida=?", (del_s,)); conn.commit(); st.rerun()
+                                conn.execute("DELETE FROM diametros WHERE medida=?", (del_s,))
+                                conn.commit(); st.rerun()
                 conn.close()
 
             with t2:
@@ -406,18 +322,16 @@ if login():
                     with st.form("a_c", clear_on_submit=True):
                         st.write("**Registrar**")
                         nn, nt = st.text_input("Nombre"), st.text_input("Teléfono")
-                        if st.form_submit_button("Guardar"):
-                            if nn: conn.execute("INSERT INTO clientes (nombre, telefono) VALUES (?,?)", (nn, nt)); conn.commit(); st.rerun()
+                        if st.form_submit_button("Guardar") and nn:
+                            conn.execute("INSERT INTO clientes (nombre, telefono) VALUES (?,?)", (nn, nt)); conn.commit(); st.rerun()
                 with c2:
                     if not df_c.empty:
                         with st.form("e_c"):
                             st.write("**Corregir**")
                             sel_c = st.selectbox("Elegir Cliente", df_c['Nombre'].tolist())
                             new_n, new_t = st.text_input("Nombre Correcto"), st.text_input("Teléfono Correcto")
-                            if st.form_submit_button("Actualizar"):
-                                if new_n:
-                                    conn.execute("UPDATE clientes SET nombre=?, telefono=? WHERE nombre=?", (new_n, new_t, sel_c))
-                                    conn.commit(); st.rerun()
+                            if st.form_submit_button("Actualizar") and new_n:
+                                conn.execute("UPDATE clientes SET nombre=?, telefono=? WHERE nombre=?", (new_n, new_t, sel_c)); conn.commit(); st.rerun()
                 with c3:
                     if not df_c.empty:
                         with st.form("b_c"):
@@ -430,7 +344,7 @@ if login():
             with t3:
                 st.write("**Configuración de IVA**")
                 with st.form("f_iva"):
-                    n_iva = st.number_input("IVA (%)", min_value=0.0, max_value=100.0, value=float(VALOR_IVA), format="%.2f", step=0.01)
+                    n_iva = st.number_input("IVA (%)", min_value=0.0, max_value=100.0, value=float(VALOR_IVA), format="%.2f")
                     if st.form_submit_button("Actualizar"):
                         conn = get_connection(); conn.execute("UPDATE configuracion SET valor=? WHERE parametro='iva'", (n_iva,))
                         conn.commit(); conn.close(); st.success("IVA actualizado"); time.sleep(1); st.rerun()
