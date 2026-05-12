@@ -43,7 +43,6 @@ st.markdown(
     """, unsafe_allow_html=True
 )
 
-# TU URL ACTUALIZADA
 URL_GOOGLE = "https://script.google.com/macros/s/AKfycbwoL0M4LCT2s8oAt362Jkb21lKvJM-HmGXErlrH3DQ3WE6GMypfaJO6_xfW1R-U3VS_/exec"
 
 # --- 3. SEGURIDAD Y ESTADOS ---
@@ -210,11 +209,23 @@ if login():
             with t1:
                 df = pd.read_sql("SELECT * FROM diametros", conn)
                 if not df.empty:
-                    df['Pulgadas'] = (df['medida'].str.extract('(\d+)').astype(float) / 25.4).apply(math.ceil).astype(str) + '"'
+                    # FILTRO DE SEGURIDAD: Evita error si hay celdas vacías extrayendo números
+                    df['num'] = df['medida'].str.extract(r'(\d+)', expand=False).astype(float)
+                    # FILTRO DE SEGURIDAD: Calcula solo si hay un número válido
+                    df['Pulgadas'] = (df['num'] / 25.4).apply(lambda x: f'{math.ceil(x)}"' if pd.notna(x) else "-")
+                    df['Total'] = df['precio'] * (1 + (VALOR_IVA / 100))
+                    
                     for s in ["SIN ARMADURA", "HORMIGON ARMADO", "CON ESPIGA", "TUBERIA CLASE II", "TAPAS PEATONALES"]:
                         st.markdown(f'<div class="titulo-seccion">{s}</div>', unsafe_allow_html=True)
-                        dfs = df[df['seccion'] == s]
-                        if not dfs.empty: st.table(dfs[['medida', 'Pulgadas', 'tipo', 'precio']])
+                        dfs = df[df['seccion'] == s].sort_values('num', ascending=True)
+                        if not dfs.empty:
+                            df_mostrar = dfs[['medida', 'Pulgadas', 'tipo', 'precio', 'Total']].rename(
+                                columns={'medida': 'Medida (mm)', 'tipo': 'Detalle', 'precio': 'Unitario ($)', 'Total': f'Con {VALOR_IVA}% IVA'})
+                            # Formato moneda a 2 decimales
+                            df_mostrar['Unitario ($)'] = df_mostrar['Unitario ($)'].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "$0.00")
+                            df_mostrar[f'Con {VALOR_IVA}% IVA'] = df_mostrar[f'Con {VALOR_IVA}% IVA'].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "$0.00")
+                            st.table(df_mostrar.assign(idx='').set_index('idx'))
+                
                 with st.form("add"):
                     c1, c2, c3, c4 = st.columns(4)
                     sec = c1.selectbox("Sección", ["SIN ARMADURA", "HORMIGON ARMADO", "CON ESPIGA", "TUBERIA CLASE II", "TAPAS PEATONALES"])
