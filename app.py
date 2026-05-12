@@ -19,13 +19,18 @@ st.set_page_config(
 st.markdown(
     """
     <style>
+    /* Fondo principal */
     .stApp {
         background: linear-gradient(135deg, #ced4da 0%, #e9ecef 40%, #ffffff 100%);
         background-attachment: fixed;
     }
+    
+    /* Fondo del menú lateral */
     [data-testid="stSidebar"] {
         background-color: #212529 !important;
     }
+
+    /* FORZAR LETRAS BLANCAS EN EL MENÚ LATERAL */
     [data-testid="stSidebar"] p, 
     [data-testid="stSidebar"] span, 
     [data-testid="stSidebar"] label, 
@@ -35,6 +40,8 @@ st.markdown(
     div[role="radiogroup"] label {
         color: #ffffff !important;
     }
+
+    /* FORZAR BOTONES BLANCOS EN EL MENÚ LATERAL */
     section[data-testid="stSidebar"] .stButton button {
         background-color: #ffffff !important;
         border: 2px solid #adb5bd !important;
@@ -51,6 +58,8 @@ st.markdown(
         background-color: #e9ecef !important;
         border-color: #ffffff !important;
     }
+
+    /* Estilo de los formularios y tablas */
     [data-testid="stHeader"], .stForm, .stDataFrame {
         background-color: white;
         border-radius: 12px;
@@ -62,6 +71,8 @@ st.markdown(
         border: 2px solid #ffffff40;
         margin-bottom: 20px;
     }
+
+    /* Títulos de secciones del catálogo */
     .titulo-seccion {
         background-color: #f1f3f5;
         color: #5c636a;
@@ -81,10 +92,9 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ⚠️ PEGA AQUÍ TU URL DE GOOGLE DEL PASO ANTERIOR
 URL_GOOGLE = "https://script.google.com/macros/s/AKfycbyCLgPnnxfeizslT_9ySWcMlYtwRpogD7S_NBT2xAgtMZTM94tYtbUVtTtOXSrpMgss/exec"
 
-# --- 3. SISTEMA DE SEGURIDAD Y VARIABLES DE INICIO ---
+# --- 3. SISTEMA DE SEGURIDAD ---
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 if "config_autenticado" not in st.session_state:
@@ -112,7 +122,7 @@ def login():
         return False
     return True
 
-# --- 4. BASE DE DATOS LOCAL Y FUNCIONES DE NUBE ---
+# --- 4. BASE DE DATOS Y RESPALDO ---
 def obtener_fecha_ecuador():
     tz_ecuador = timezone(timedelta(hours=-5))
     return datetime.now(tz_ecuador).date()
@@ -126,19 +136,28 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS produccion (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, diametro TEXT, cantidad INTEGER)''')
     c.execute('''CREATE TABLE IF NOT EXISTS pedidos (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, cliente TEXT, diametro TEXT, cantidad_total INTEGER, estado TEXT, observaciones TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS entregas (id INTEGER PRIMARY KEY AUTOINCREMENT, pedido_id INTEGER, fecha TEXT, cantidad_entregada INTEGER, FOREIGN KEY(pedido_id) REFERENCES pedidos(id))''')
+    
     c.execute('''CREATE TABLE IF NOT EXISTS diametros (id INTEGER PRIMARY KEY AUTOINCREMENT, medida TEXT, tipo TEXT, seccion TEXT, precio REAL)''')
     try: c.execute("ALTER TABLE diametros ADD COLUMN seccion TEXT")
     except: pass
+    c.execute("UPDATE diametros SET seccion = 'SIN ARMADURA' WHERE seccion IS NULL OR seccion = ''")
+
     c.execute('''CREATE TABLE IF NOT EXISTS clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, telefono TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS configuracion (id INTEGER PRIMARY KEY, parametro TEXT, valor REAL)''')
+    
+    if conn.execute("SELECT COUNT(*) FROM configuracion WHERE parametro='iva'").fetchone()[0] == 0:
+        conn.execute("INSERT INTO configuracion (parametro, valor) VALUES ('iva', 15.0)")
+    
     conn.commit()
     conn.close()
+
+init_db()
 
 def descargar_datos_automaticamente():
     """Conecta a Google Drive y restaura la info al abrir la app"""
     try:
         payload = {"accion": "leer"}
-        response = requests.post(URL_GOOGLE, json=payload, timeout=40)
+        response = requests.post(URL_GOOGLE, json=payload, timeout=30)
         if response.status_code == 200:
             data = response.json()
             if data.get("resultado") == "éxito":
@@ -146,27 +165,32 @@ def descargar_datos_automaticamente():
                 conn = get_connection()
                 cursor = conn.cursor()
                 
-                # Lista de tablas a sincronizar
                 mapeo_tablas = [
                     ("Produccion", "produccion"), ("Pedidos", "pedidos"), 
                     ("Entregas", "entregas"), ("Diametros", "diametros"), 
                     ("Clientes", "clientes"), ("Configuracion", "configuracion")
                 ]
                 
+                hay_datos = False
                 for sheet_name, db_name in mapeo_tablas:
                     if sheet_name in tablas_datos and len(tablas_datos[sheet_name]) > 1:
+                        hay_datos = True
                         headers = tablas_datos[sheet_name][0]
                         rows = tablas_datos[sheet_name][1:]
                         df = pd.DataFrame(rows, columns=headers)
                         
-                        # Limpia la tabla vacía y pega lo que viene de Google
                         cursor.execute(f"DELETE FROM {db_name}")
                         df.to_sql(db_name, conn, if_exists='append', index=False)
                         
                 conn.commit()
                 conn.close()
+                return True, "Datos cargados"
+            else:
+                return False, "Por favor actualiza el código en Google Apps Script con la acción 'leer'."
+        else:
+            return False, f"Error HTTP {response.status_code}"
     except Exception as e:
-        print("Error de conexión inicial:", e)
+        return False, str(e)
 
 def ejecutar_respaldo_nube():
     try:
@@ -184,20 +208,11 @@ def ejecutar_respaldo_nube():
             df = pd.read_sql(query, conn).fillna("")
             payload[nombre] = [df.columns.tolist()] + df.values.tolist()
         conn.close()
-        response = requests.post(URL_GOOGLE, json=payload, timeout=40)
+        response = requests.post(URL_GOOGLE, json=payload, timeout=30)
         return response.status_code == 200
     except: return False
 
-init_db()
 
-# --- MAGIA DE CARGA AUTOMÁTICA ---
-# Solo se ejecuta 1 vez cuando se levanta la aplicación
-if not st.session_state.datos_cargados:
-    with st.spinner("📥 Importando información de TUBOS_DB..."):
-        descargar_datos_automaticamente()
-    st.session_state.datos_cargados = True
-
-# --- FUNCIONES DE INTERFAZ ---
 SECCIONES = ["SIN ARMADURA", "HORMIGON ARMADO", "CON ESPIGA", "TUBERIA CLASE II", "TAPAS PEATONALES"]
 
 def obtener_iva():
@@ -224,6 +239,20 @@ def obtener_clientes():
 
 # --- 5. CUERPO DE LA APP ---
 if login():
+    
+    # ⚡ AUTO-CARGA DE DATOS (Se ejecuta solo 1 vez al iniciar)
+    if not st.session_state.datos_cargados:
+        with st.spinner("📥 Cargando tu información desde TUBOS_DB..."):
+            exito, mensaje = descargar_datos_automaticamente()
+            st.session_state.datos_cargados = True
+            if exito:
+                st.success("✅ Datos restaurados con éxito")
+                time.sleep(1)
+                st.rerun()
+            else:
+                st.error(f"⚠️ No se pudo cargar: {mensaje}")
+                time.sleep(3)
+
     st.sidebar.markdown("<br>", unsafe_allow_html=True)
     try: st.sidebar.image(NOMBRE_LOGO, use_container_width=True)
     except: st.sidebar.title("GUILLÉN")
