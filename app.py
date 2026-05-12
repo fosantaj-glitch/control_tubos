@@ -9,7 +9,7 @@ import math
 # --- 1. CONFIGURACIÓN ---
 st.set_page_config(page_title="Control de Tubos - GUILLÉN", page_icon="🏭", layout="wide", initial_sidebar_state="expanded")
 
-# --- 2. DISEÑO VISUAL ORIGINAL ---
+# --- 2. DISEÑO VISUAL ---
 st.markdown(
     """
     <style>
@@ -59,7 +59,7 @@ def login():
             except: pass
             st.title("🏭 Inventario GUILLÉN")
             st.subheader("Acceso al Sistema")
-            clave = st.text_input("Contraseña", type="password")
+            clave = st.text_input("Contraseña", type="password", key="login_pass")
             if st.button("Ingresar", type="primary", use_container_width=True):
                 if clave == "Tubos2026":
                     st.session_state.autenticado = True
@@ -96,7 +96,6 @@ def descargar_datos():
             if data.get("resultado") == "éxito":
                 tablas = data.get("datos", {})
                 conn = get_connection()
-                # Mapeo exacto de las 6 pestañas de TUBOS_DB
                 mapeo = [("Produccion", "produccion"), ("Pedidos", "pedidos"), ("Entregas", "entregas"),
                          ("Diametros", "diametros"), ("Clientes", "clientes"), ("Configuracion", "configuracion")]
                 
@@ -104,18 +103,14 @@ def descargar_datos():
                     if hoja in tablas and len(tablas[hoja]) > 1:
                         df = pd.DataFrame(tablas[hoja][1:], columns=tablas[hoja][0])
                         df = df.replace(r'^\s*$', None, regex=True)
-                        
-                        # Limpieza de precios para la tabla de diametros
                         if tabla_db == "diametros" and "precio" in df.columns:
                             df['precio'] = df['precio'].astype(str).str.replace('$', '').str.replace(',', '').astype(float, errors='ignore')
-                        
                         conn.execute(f"DELETE FROM {tabla_db}")
                         df.to_sql(tabla_db, conn, if_exists='append', index=False)
                 conn.commit(); conn.close()
-                return True, "Sincronizado"
-    except Exception as e:
-        return False, str(e)
-    return False, "Error desconocido"
+                return True
+    except: pass
+    return False
 
 def subir_datos():
     try:
@@ -134,9 +129,12 @@ def subir_datos():
 if login():
     if not st.session_state.datos_cargados:
         with st.spinner("📥 Sincronizando con TUBOS_DB..."):
-            descargar_datos()
-            st.session_state.datos_cargados = True
-            st.rerun()
+            if descargar_datos():
+                st.session_state.datos_cargados = True
+                st.rerun()
+            else:
+                st.error("No se pudo cargar la información. Revisa la conexión con Google Drive.")
+                st.session_state.datos_cargados = True # Evita bucle infinito si falla
 
     st.sidebar.markdown("<br>", unsafe_allow_html=True)
     try: st.sidebar.image("logo.jpg", use_container_width=True)
@@ -154,6 +152,8 @@ if login():
     st.sidebar.divider()
     menu = ["📊 Resumen de Patio", "🧱 Fabricación Diaria", "📝 Pedidos y Ventas", "🚚 Despachos", "⚙️ Configuración"]
     opcion = st.sidebar.radio("MENÚ", menu)
+
+    if opcion != menu[4]: st.session_state.config_autenticado = False
 
     conn = get_connection()
     res_iva = conn.execute("SELECT valor FROM configuracion WHERE parametro='iva'").fetchone()
@@ -201,9 +201,12 @@ if login():
     elif opcion == menu[4]:
         st.header("⚙️ Administración de Datos")
         if not st.session_state.config_autenticado:
-            with st.form("admin"):
+            with st.form("admin_form"):
+                clave_adm = st.text_input("Clave de Administrador", type="password")
                 if st.form_submit_button("Desbloquear Administración"):
-                    st.session_state.config_autenticado = True; st.rerun()
+                    if clave_adm == "Tubos2026":
+                        st.session_state.config_autenticado = True; st.rerun()
+                    else: st.error("❌ Clave incorrecta")
         else:
             t1, t2, t3 = st.tabs(["📏 Catálogo de Productos", "👥 Clientes", "💰 IVA"])
             with t1:
@@ -274,7 +277,7 @@ if login():
                                 conn.execute("DELETE FROM clientes WHERE nombre=?", (dc,)); conn.commit(); st.rerun()
             
             with t3:
-                with st.form("iva"):
+                with st.form("iva_form"):
                     n_iva = st.number_input("Configurar % IVA", value=float(VALOR_IVA))
                     if st.form_submit_button("Actualizar IVA"):
                         conn.execute("UPDATE configuracion SET valor=? WHERE parametro='iva'", (n_iva,))
