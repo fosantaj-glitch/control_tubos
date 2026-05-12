@@ -89,6 +89,7 @@ def init_db():
 init_db()
 
 def descargar_datos():
+    """Motor de descarga robusto. Ignora basura de Excel y fuerza la compatibilidad con SQLite."""
     try:
         response = requests.post(URL_GOOGLE, json={"accion": "leer"}, timeout=30)
         if response.status_code == 200:
@@ -102,15 +103,30 @@ def descargar_datos():
                 for hoja, tabla_db in mapeo:
                     if hoja in tablas and len(tablas[hoja]) > 1:
                         df = pd.DataFrame(tablas[hoja][1:], columns=tablas[hoja][0])
+                        
+                        # Limpieza 1: Quitar espacios en blanco
                         df = df.replace(r'^\s*$', None, regex=True)
+                        # Limpieza 2: Eliminar filas completamente vacías
+                        df.dropna(how='all', inplace=True)
+                        
                         if tabla_db == "diametros" and "precio" in df.columns:
                             df['precio'] = df['precio'].astype(str).str.replace('$', '').str.replace(',', '').astype(float, errors='ignore')
+                        
+                        # Limpieza 3: Filtrar solo las columnas que SQLite reconoce
+                        db_cols = pd.read_sql(f"PRAGMA table_info({tabla_db})", conn)['name'].tolist()
+                        valid_cols = [col for col in df.columns if col in db_cols]
+                        df = df[valid_cols]
+
                         conn.execute(f"DELETE FROM {tabla_db}")
                         df.to_sql(tabla_db, conn, if_exists='append', index=False)
+                
                 conn.commit(); conn.close()
-                return True
-    except: pass
-    return False
+                return True, "Sincronización completa"
+            else:
+                return False, data.get("detalle", "Error al leer datos en Google.")
+        return False, f"Error HTTP {response.status_code}"
+    except Exception as e:
+        return False, f"Fallo en App: {str(e)}"
 
 def subir_datos():
     try:
@@ -125,24 +141,26 @@ def subir_datos():
         return requests.post(URL_GOOGLE, json=payload, timeout=30).status_code == 200
     except: return False
 
-# --- 5. INTERFAZ ---
+# --- 5. INTERFAZ PRINCIPAL ---
 if login():
+    # AUTO-CARGA INICIAL
     if not st.session_state.datos_cargados:
         with st.spinner("📥 Sincronizando con TUBOS_DB..."):
-            if descargar_datos():
-                st.session_state.datos_cargados = True
-                st.rerun()
+            exito, msj = descargar_datos()
+            st.session_state.datos_cargados = True
+            if exito:
+                pass # Carga exitosa invisible
             else:
-                st.error("No se pudo cargar la información. Revisa la conexión con Google Drive.")
-                st.session_state.datos_cargados = True # Evita bucle infinito si falla
+                st.error(f"Error de carga: {msj}")
 
     st.sidebar.markdown("<br>", unsafe_allow_html=True)
     try: st.sidebar.image("logo.jpg", use_container_width=True)
     except: st.sidebar.title("GUILLÉN")
 
     if st.sidebar.button("💾 Respaldar a Drive"):
-        if subir_datos(): st.sidebar.success("✅ Guardado")
-        else: st.sidebar.error("❌ Error")
+        with st.spinner("Subiendo datos..."):
+            if subir_datos(): st.sidebar.success("✅ Guardado")
+            else: st.sidebar.error("❌ Error")
                 
     if st.sidebar.button("🚪 Cerrar Sesión"):
         st.session_state.autenticado = False
@@ -168,7 +186,7 @@ if login():
             resumen['Stock Disponible'] = resumen['fab'] - resumen['ped']
             resumen.columns = ['Producto / Diámetro', 'Total Fabricado', 'Total Vendido', 'Stock en Patio']
             st.dataframe(resumen, use_container_width=True, hide_index=True)
-        else: st.info("No hay datos para mostrar.")
+        else: st.info("No hay datos de fabricación para mostrar.")
 
     elif opcion == menu[1]:
         st.header("🧱 Registro de Fabricación Diaria")
@@ -195,8 +213,34 @@ if login():
             n = c3.number_input("Cantidad", min_value=1, step=1)
             if st.form_submit_button("Registrar Pedido"):
                 if cl != "Seleccione..." and d != "Seleccione...":
-                    conn.execute("INSERT INTO pedidos (fecha, cliente, diametro, cantidad_total, estado) VALUES (?,?,?,?,?)", (str(obtener_fecha_ecuador()), cl, d, n, 'Pendiente'))
+                    conn.execute("INSERT INTO pedidos (fecha, cliente, diametro, cantidad_total, estado, observaciones) VALUES (?,?,?,?,?,?)", (str(obtener_fecha_ecuador()), cl, d, n, 'Pendiente', ''))
                     conn.commit(); st.success("Registrado"); st.rerun()
+
+    elif opcion == menu[3]:
+        # --- AQUÍ ESTÁ EL CÓDIGO RESTAURADO DE DESPACHOS ---
+        st.header("🚚 Control de Despachos y Entregas")
+        st.write("Pedidos pendientes por entregar:")
+        pedidos = pd.read_sql("SELECT id, fecha, cliente, diametro, cantidad_total as Cantidad FROM pedidos WHERE estado='Pendiente'", conn)
+        
+        if not pedidos.empty:
+            st.table(pedidos.drop(columns=['id']))
+            st.divider()
+            with st.form("f_despacho"):
+                st.subheader("Registrar Entrega")
+                c1, c2 = st.columns(2)
+                p_sel = c1.selectbox("Seleccionar Pedido", [f"ID {r['id']} - {r['cliente']} ({r['diametro']})" for _, r in pedidos.iterrows()])
+                cant_ent = c2.number_input("Cantidad a Entregar", min_value=1, step=1)
+                
+                if st.form_submit_button("Marcar como Entregado"):
+                    id_pedido = int(p_sel.split(" - ")[0].replace("ID ", ""))
+                    # Lógica simple: si se despacha, se marca como entregado en la base (versión inicial)
+                    conn.execute("UPDATE pedidos SET estado='Entregado' WHERE id=?", (id_pedido,))
+                    conn.execute("INSERT INTO entregas (pedido_id, fecha, cantidad_entregada) VALUES (?,?,?)", (id_pedido, str(obtener_fecha_ecuador()), cant_ent))
+                    conn.commit()
+                    st.success("Despacho registrado correctamente")
+                    st.rerun()
+        else:
+            st.info("No hay despachos pendientes en este momento.")
 
     elif opcion == menu[4]:
         st.header("⚙️ Administración de Datos")
@@ -208,6 +252,13 @@ if login():
                         st.session_state.config_autenticado = True; st.rerun()
                     else: st.error("❌ Clave incorrecta")
         else:
+            # Botón de rescate manual
+            if st.button("🔄 Forzar Descarga desde Google Drive (Si no ves tus datos, presiona aquí)", type="primary"):
+                with st.spinner("Descargando e inyectando datos..."):
+                    ex, msg = descargar_datos()
+                    if ex: st.success("Datos actualizados. Reiniciando..."); time.sleep(1); st.rerun()
+                    else: st.error(f"Fallo: {msg}")
+
             t1, t2, t3 = st.tabs(["📏 Catálogo de Productos", "👥 Clientes", "💰 IVA"])
             with t1:
                 df = pd.read_sql("SELECT * FROM diametros", conn)
@@ -220,8 +271,8 @@ if login():
                         dfs = df[df['seccion'] == s].sort_values('num', ascending=True)
                         if not dfs.empty:
                             dfm = dfs[['medida', 'Pulgadas', 'tipo', 'precio', 'Total']].rename(columns={'medida': 'Medida (mm)', 'precio': 'Unitario ($)', 'Total': f'Con {VALOR_IVA}% IVA'})
-                            dfm['Unitario ($)'] = dfm['Unitario ($)'].apply(lambda x: f"${x:.2f}")
-                            dfm[f'Con {VALOR_IVA}% IVA'] = dfm[f'Con {VALOR_IVA}% IVA'].apply(lambda x: f"${x:.2f}")
+                            dfm['Unitario ($)'] = dfm['Unitario ($)'].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "$0.00")
+                            dfm[f'Con {VALOR_IVA}% IVA'] = dfm[f'Con {VALOR_IVA}% IVA'].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "$0.00")
                             st.table(dfm.assign(idx='').set_index('idx'))
                 
                 st.divider()
