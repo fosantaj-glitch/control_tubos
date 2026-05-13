@@ -93,6 +93,8 @@ def subir_datos():
         tablas = {"Produccion": "produccion", "Pedidos": "pedidos", "Entregas": "entregas", "Diametros": "diametros", "Clientes": "clientes", "Configuracion": "configuracion"}
         for hoja, db in tablas.items():
             df = pd.read_sql(f"SELECT * FROM {db}", conn).fillna("")
+            # Filtro estricto para evitar duplicados en la carga hacia Drive
+            df = df.drop_duplicates()
             payload[hoja] = [df.columns.tolist()] + df.values.tolist()
         conn.close(); return requests.post(URL_GOOGLE, json=payload, timeout=30).status_code == 200
     except: return False
@@ -107,8 +109,9 @@ if login():
     except: st.sidebar.title("GUILLÉN")
     
     if st.sidebar.button("💾 Respaldar a Drive"):
-        if subir_datos(): st.sidebar.success("✅ Guardado")
-        else: st.sidebar.error("❌ Error")
+        with st.spinner("Enviando paquete único a Drive..."):
+            if subir_datos(): st.sidebar.success("✅ Guardado Exitoso")
+            else: st.sidebar.error("❌ Error al guardar")
                 
     if st.sidebar.button("🚪 Cerrar Sesión"):
         st.session_state.autenticado = False; st.session_state.datos_cargados = False; st.rerun()
@@ -159,14 +162,15 @@ if login():
         df_hist = pd.read_sql("SELECT id, fecha, diametro, cantidad FROM produccion WHERE fecha BETWEEN ? AND ? ORDER BY fecha DESC", conn, params=(str(f_desde), str(f_hasta)))
         
         if not df_hist.empty:
-            st.dataframe(df_hist.drop(columns=['id']), use_container_width=True, hide_index=True)
+            # CORRECCIÓN: Se muestra el DataFrame completo, incluyendo la columna ID
+            st.dataframe(df_hist, use_container_width=True, hide_index=True)
             
             # SECCIÓN DE EDICIÓN/BORRADO
             st.markdown("---")
             st.subheader("🛠️ Editar o Borrar Registro")
             with st.form("f_edit_prod"):
                 c1, c2, c3, c4 = st.columns([1, 2, 2, 1])
-                id_sel = c1.selectbox("ID", df_hist['id'].tolist())
+                id_sel = c1.selectbox("ID a Modificar", df_hist['id'].tolist())
                 f_new = c2.date_input("Nueva Fecha")
                 d_new = c3.selectbox("Nuevo Producto", listado)
                 n_new = c4.number_input("Nueva Cantidad", min_value=1, step=1)
@@ -200,7 +204,8 @@ if login():
         st.header("🚚 Control de Despachos")
         pedidos = pd.read_sql("SELECT id, fecha, cliente, diametro, cantidad_total as Cantidad FROM pedidos WHERE estado='Pendiente'", conn)
         if not pedidos.empty:
-            st.table(pedidos.drop(columns=['id']))
+            # CORRECCIÓN: Se mantiene la vista del ID para identificar el pedido a entregar
+            st.table(pedidos)
             with st.form("desp"):
                 sel = st.selectbox("Pedido a Entregar", [f"ID {r['id']} - {r['cliente']}" for _, r in pedidos.iterrows()])
                 if st.form_submit_button("Marcar como Entregado"):
