@@ -306,16 +306,11 @@ if login():
             pedidos_p = pedidos_p[pedidos_p['saldo'] > 0].copy()
             if not pedidos_p.empty:
                 st.table(pedidos_p[['id', 'fecha', 'cliente', 'diametro', 'cantidad_total', 'saldo']])
-                
-                # FORMULARIO SIN CLEAR_ON_SUBMIT - USO DE KEY DINÁMICO PARA LIMPIEZA
                 with st.form("f_desp"):
                     c1, c2, c3 = st.columns(3)
                     sel_p = c1.selectbox("Pedido a despachar", [f"ID {r['id']} - {r['cliente']} ({r['diametro']} | Saldo: {int(r['saldo'])})" for _, r in pedidos_p.iterrows()])
-                    
-                    # LLAVE DINÁMICA A PRUEBA DE FALLOS
                     c_desp = c2.number_input("Cantidad", min_value=1, step=1, value=None, placeholder="0", key=f"c_desp_{st.session_state.k_desp}")
                     f_desp = c3.date_input("Fecha", obtener_fecha_ecuador())
-                    
                     if st.form_submit_button("Registrar Despacho"):
                         if c_desp:
                             pid = int(sel_p.split(" ")[1]); s_act = int(sel_p.split("Saldo: ")[1].replace(")", ""))
@@ -323,7 +318,6 @@ if login():
                                 conn.execute("INSERT INTO entregas (pedido_id, fecha, cantidad_entregada) VALUES (?,?,?)", (pid, str(f_desp), c_desp))
                                 if c_desp == s_act: conn.execute("UPDATE pedidos SET estado='Entregado' WHERE id=?", (pid,))
                                 conn.commit()
-                                # AVANZAMOS LA LLAVE DINÁMICA PARA DESTRUIR EL INPUT Y CREAR UNO VACÍO
                                 st.session_state.k_desp += 1 
                                 st.success("✅ Despachado")
                                 time.sleep(1)
@@ -334,6 +328,55 @@ if login():
                 st.info("✅ Todos los pedidos han sido 100% despachados.")
         else: 
             st.info("✅ No hay pedidos registrados o todos están entregados.")
+
+        # --- SECCIÓN: HISTORIAL Y EDICIÓN DE DESPACHOS ---
+        st.divider()
+        st.subheader("🔍 Consultar y Editar Despachos Registrados")
+        df_hist_desp = pd.read_sql('''
+            SELECT e.id as ID, e.fecha as 'Fecha Despacho', e.cantidad_entregada as Cantidad,
+                   p.cliente as Cliente, p.diametro as Producto, e.pedido_id
+            FROM entregas e
+            JOIN pedidos p ON e.pedido_id = p.id
+            ORDER BY e.fecha DESC, e.id DESC
+        ''', conn)
+        
+        if not df_hist_desp.empty:
+            st.dataframe(df_hist_desp.drop(columns=['pedido_id']), use_container_width=True, hide_index=True)
+            
+            st.markdown("---")
+            st.subheader("🛠️ Editar o Borrar Despacho")
+            with st.form("f_edit_desp"):
+                c1, c2, c3 = st.columns([1, 2, 2])
+                id_desp_sel = c1.selectbox("ID de Despacho", df_hist_desp['ID'].tolist())
+                new_f_desp = c2.date_input("Nueva Fecha")
+                new_c_desp = c3.number_input("Nueva Cantidad", min_value=1, step=1, value=None, placeholder="0")
+                
+                b1, b2 = st.columns(2)
+                if b1.form_submit_button("✅ Actualizar", use_container_width=True):
+                    if id_desp_sel and new_c_desp:
+                        # Extraer pedido_id asociado
+                        ped_id = df_hist_desp[df_hist_desp['ID'] == id_desp_sel]['pedido_id'].iloc[0]
+                        total_pedido = conn.execute("SELECT cantidad_total FROM pedidos WHERE id=?", (int(ped_id),)).fetchone()[0]
+                        entregas_otras = conn.execute("SELECT SUM(cantidad_entregada) FROM entregas WHERE pedido_id=? AND id!=?", (int(ped_id), int(id_desp_sel))).fetchone()[0] or 0
+                        
+                        if (entregas_otras + new_c_desp) > total_pedido:
+                            st.error(f"❌ La nueva cantidad sumada al resto de despachos excede la compra total.")
+                        else:
+                            conn.execute("UPDATE entregas SET fecha=?, cantidad_entregada=? WHERE id=?", (str(new_f_desp), new_c_desp, int(id_desp_sel)))
+                            nuevo_estado = 'Entregado' if (entregas_otras + new_c_desp) == total_pedido else 'Pendiente'
+                            conn.execute("UPDATE pedidos SET estado=? WHERE id=?", (nuevo_estado, int(ped_id)))
+                            conn.commit(); st.success("✅ Despacho actualizado."); time.sleep(1); st.rerun()
+                    else:
+                        st.error("❌ Ingrese una cantidad válida.")
+                        
+                if b2.form_submit_button("🗑️ Borrar", use_container_width=True):
+                    if id_desp_sel:
+                        ped_id = df_hist_desp[df_hist_desp['ID'] == id_desp_sel]['pedido_id'].iloc[0]
+                        conn.execute("DELETE FROM entregas WHERE id=?", (int(id_desp_sel),))
+                        conn.execute("UPDATE pedidos SET estado='Pendiente' WHERE id=?", (int(ped_id),))
+                        conn.commit(); st.warning("✅ Despacho eliminado."); time.sleep(1); st.rerun()
+        else:
+            st.info("No hay historial de despachos registrados para editar.")
 
     elif opcion == menu[4]:
         st.header("⚙️ Administración")
