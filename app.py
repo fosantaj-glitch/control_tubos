@@ -156,31 +156,33 @@ if login():
         f_hasta = c2.date_input("Fecha Hasta", obtener_fecha_ecuador(), key="fp2")
         df_hist_p = pd.read_sql("SELECT id, fecha, diametro, cantidad FROM produccion WHERE fecha BETWEEN ? AND ? ORDER BY fecha DESC", conn, params=(str(f_desde), str(f_hasta)))
         
-        if not df_hist_p.empty:
-            st.dataframe(df_hist_p, use_container_width=True, hide_index=True)
+        # SIEMPRE MUESTRA LA TABLA
+        if df_hist_p.empty:
+            st.info("⚠️ No se encontraron registros en este periodo.")
+            st.dataframe(pd.DataFrame(columns=["id", "fecha", "diametro", "cantidad"]), use_container_width=True, hide_index=True)
         else:
-            st.info("⚠️ No hay registros de fabricación en este periodo de tiempo.")
+            st.dataframe(df_hist_p, use_container_width=True, hide_index=True)
 
+        # FORMULARIO PERMANENTE
         st.markdown("---")
         st.subheader("🛠️ Editar o Borrar Fabricación")
-        # Cambio crítico: Lee TODO el historial para que el formulario SIEMPRE exista
-        df_all_p = pd.read_sql("SELECT * FROM produccion ORDER BY id DESC", conn)
-        if not df_all_p.empty:
-            with st.form("f_edit_prod"):
-                c1, c2, c3, c4 = st.columns([1, 2, 2, 1])
-                id_sel = c1.selectbox("ID a Modificar", df_all_p['id'].tolist())
-                f_new = c2.date_input("Nueva Fecha")
-                d_new = c3.selectbox("Nuevo Producto", listado_prod)
-                n_new = c4.number_input("Nueva Cantidad", min_value=1, step=1)
-                b1, b2 = st.columns(2)
-                if b1.form_submit_button("✅ Actualizar", use_container_width=True):
+        with st.form("f_edit_prod"):
+            c1, c2, c3, c4 = st.columns([1, 2, 2, 1])
+            lista_ids_p = df_hist_p['id'].tolist() if not df_hist_p.empty else ["-"]
+            id_sel = c1.selectbox("ID a Modificar", lista_ids_p)
+            f_new = c2.date_input("Nueva Fecha")
+            d_new = c3.selectbox("Nuevo Producto", listado_prod)
+            n_new = c4.number_input("Nueva Cantidad", min_value=1, step=1)
+            
+            b1, b2 = st.columns(2)
+            if b1.form_submit_button("✅ Actualizar", use_container_width=True):
+                if id_sel != "-":
                     conn.execute("UPDATE produccion SET fecha=?, diametro=?, cantidad=? WHERE id=?", (str(f_new), d_new, n_new, id_sel))
-                    conn.commit(); st.success("Actualizado"); st.rerun()
-                if b2.form_submit_button("🗑️ Borrar", use_container_width=True):
+                    conn.commit(); st.success("Actualizado"); time.sleep(1); st.rerun()
+            if b2.form_submit_button("🗑️ Borrar", use_container_width=True):
+                if id_sel != "-":
                     conn.execute("DELETE FROM produccion WHERE id=?", (id_sel,))
-                    conn.commit(); st.warning("Eliminado"); st.rerun()
-        else:
-            st.warning("No hay registros en el sistema para editar o borrar.")
+                    conn.commit(); st.warning("Eliminado"); time.sleep(1); st.rerun()
 
     elif opcion == menu[2]:
         st.header("📝 Registro de Pedidos y Ventas")
@@ -206,33 +208,34 @@ if login():
         fv_hasta = c2.date_input("Fecha Hasta", obtener_fecha_ecuador(), key="fv2")
         df_hist_v = pd.read_sql("SELECT id, fecha, cliente, diametro, cantidad_total, estado FROM pedidos WHERE fecha BETWEEN ? AND ? ORDER BY fecha DESC", conn, params=(str(fv_desde), str(fv_hasta)))
         
-        if not df_hist_v.empty:
-            st.dataframe(df_hist_v, use_container_width=True, hide_index=True)
+        # SIEMPRE MUESTRA LA TABLA
+        if df_hist_v.empty:
+            st.info("⚠️ No se encontraron pedidos en este periodo.")
+            st.dataframe(pd.DataFrame(columns=["id", "fecha", "cliente", "diametro", "cantidad_total", "estado"]), use_container_width=True, hide_index=True)
         else:
-            st.info("⚠️ No hay registros de pedidos o ventas en las fechas seleccionadas.")
+            st.dataframe(df_hist_v, use_container_width=True, hide_index=True)
 
+        # FORMULARIO PERMANENTE
         st.markdown("---")
         st.subheader("🛠️ Editar o Borrar Pedido")
-        # Cambio crítico: Lee TODO el historial para que el formulario SIEMPRE exista
-        df_all_v = pd.read_sql("SELECT * FROM pedidos ORDER BY id DESC", conn)
-        if not df_all_v.empty:
-            with st.form("f_edit_ped"):
-                c1, c2, c3, c4, c5 = st.columns([1, 2, 2, 1, 1])
-                id_v_sel = c1.selectbox("ID a Modificar", df_all_v['id'].tolist())
-                cl_v_new = c2.selectbox("Nuevo Cliente", listado_cli)
-                d_v_new = c3.selectbox("Nuevo Producto", listado_prod)
-                n_v_new = c4.number_input("Nueva Cantidad", min_value=1, step=1)
-                est_v_new = c5.selectbox("Estado", ["Pendiente", "Entregado"])
-                
-                b1, b2 = st.columns(2)
-                if b1.form_submit_button("✅ Actualizar Pedido", use_container_width=True):
+        with st.form("f_edit_ped"):
+            c1, c2, c3, c4, c5 = st.columns([1, 2, 2, 1, 1])
+            lista_ids_v = df_hist_v['id'].tolist() if not df_hist_v.empty else ["-"]
+            id_v_sel = c1.selectbox("ID a Modificar", lista_ids_v)
+            cl_v_new = c2.selectbox("Nuevo Cliente", listado_cli)
+            d_v_new = c3.selectbox("Nuevo Producto", listado_prod)
+            n_v_new = c4.number_input("Nueva Cantidad", min_value=1, step=1)
+            est_v_new = c5.selectbox("Estado", ["Pendiente", "Entregado"])
+            
+            b1, b2 = st.columns(2)
+            if b1.form_submit_button("✅ Actualizar Pedido", use_container_width=True):
+                if id_v_sel != "-":
                     conn.execute("UPDATE pedidos SET cliente=?, diametro=?, cantidad_total=?, estado=? WHERE id=?", (cl_v_new, d_v_new, n_v_new, est_v_new, id_v_sel))
-                    conn.commit(); st.success("Pedido Actualizado"); st.rerun()
-                if b2.form_submit_button("🗑️ Borrar Pedido", use_container_width=True):
+                    conn.commit(); st.success("Pedido Actualizado"); time.sleep(1); st.rerun()
+            if b2.form_submit_button("🗑️ Borrar Pedido", use_container_width=True):
+                if id_v_sel != "-":
                     conn.execute("DELETE FROM pedidos WHERE id=?", (id_v_sel,))
-                    conn.commit(); st.warning("Pedido Eliminado"); st.rerun()
-        else:
-            st.warning("No hay pedidos en el sistema para editar o borrar.")
+                    conn.commit(); st.warning("Pedido Eliminado"); time.sleep(1); st.rerun()
 
     elif opcion == menu[3]:
         st.header("🚚 Control de Despachos")
