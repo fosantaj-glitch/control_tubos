@@ -22,6 +22,7 @@ st.markdown(
     section[data-testid="stSidebar"] .stButton button p { color: #000000 !important; font-weight: bold !important; }
     [data-testid="stHeader"], .stForm, .stDataFrame { background-color: white; border-radius: 12px; padding: 20px; box-shadow: 5px 5px 15px rgba(0,0,0,0.05); }
     .titulo-seccion { background-color: #f1f3f5; color: #5c636a; padding: 6px 15px; border-radius: 4px; margin-top: 25px; margin-bottom: 10px; text-align: center; font-weight: 600; font-size: 1.05em; text-transform: uppercase; letter-spacing: 2px; border-bottom: 2px solid #8c9296; }
+    .total-row { font-size: 1.2em; font-weight: bold; color: #1e1e1e; text-align: right; padding: 10px; background: #f8f9fa; border-top: 2px solid #dee2e6; }
     </style>
     """, unsafe_allow_html=True
 )
@@ -140,8 +141,15 @@ if login():
 
     elif opcion == menu[1]:
         st.header("🧱 Registro de Fabricación Diaria")
-        df_d = pd.read_sql("SELECT medida, seccion FROM diametros ORDER BY medida", conn)
+        # Obtener productos ordenados como el catálogo
+        df_d = pd.read_sql("SELECT medida, seccion FROM diametros", conn)
+        df_d['num'] = df_d['medida'].str.extract(r'(\d+)').astype(float)
+        seccion_order = {"SIN ARMADURA": 1, "HORMIGON ARMADO": 2, "CON ESPIGA": 3, "TUBERIA CLASE II": 4, "TAPAS PEATONALES": 5}
+        df_d['order_sec'] = df_d['seccion'].map(seccion_order)
+        df_d = df_d.sort_values(['order_sec', 'num'])
+        
         listado_p = [f"{r['medida']} ({r['seccion']})" for _, r in df_d.iterrows()] if not df_d.empty else ["Sin productos"]
+        
         with st.form("f_p"):
             c1, c2, c3 = st.columns(3)
             f = c1.date_input("Fecha", obtener_fecha_ecuador())
@@ -151,83 +159,85 @@ if login():
                 if d != "Seleccione..." and n:
                     conn.execute("INSERT INTO produccion (fecha, diametro, cantidad) VALUES (?,?,?)", (str(f), d, n))
                     conn.commit(); st.success("Guardado"); st.rerun()
-        # Visor y Edición permanente...
-        st.divider(); st.subheader("🔍 Consultar Producción")
-        f1, f2 = st.columns(2); fd = f1.date_input("Desde", obtener_fecha_ecuador()-timedelta(days=30), key="fp1"); fh = f2.date_input("Hasta", obtener_fecha_ecuador(), key="fp2")
-        df_h = pd.read_sql("SELECT * FROM produccion WHERE fecha BETWEEN ? AND ? ORDER BY id DESC", conn, params=(str(fd), str(fh)))
-        st.dataframe(df_h, use_container_width=True, hide_index=True)
-        st.markdown("---"); st.subheader("🛠️ Editar o Borrar")
-        all_ids = pd.read_sql("SELECT id FROM produccion ORDER BY id DESC", conn)
-        with st.form("edit_p"):
-            c1, c2, c3, c4 = st.columns([1,2,2,1])
-            ids = c1.selectbox("ID", all_ids['id'].tolist() if not all_ids.empty else ["-"])
-            nf, nd, nn = c2.date_input("Nueva Fecha"), c3.selectbox("Nuevo Producto", listado_p), c4.number_input("Nueva Cant.", min_value=1, value=None, placeholder="0")
-            if st.form_submit_button("✅ Actualizar"):
-                if ids != "-" and nn: conn.execute("UPDATE produccion SET fecha=?, diametro=?, cantidad=? WHERE id=?", (str(nf), nd, nn, ids)); conn.commit(); st.rerun()
-            if st.form_submit_button("🗑️ Borrar"):
-                if ids != "-": conn.execute("DELETE FROM produccion WHERE id=?", (ids,)); conn.commit(); st.rerun()
 
     elif opcion == menu[2]:
         st.header("📝 Registro de Pedidos y Ventas")
         df_c = pd.read_sql("SELECT nombre, empresa FROM clientes ORDER BY nombre", conn)
-        df_d = pd.read_sql("SELECT medida, seccion FROM diametros ORDER BY medida", conn)
+        
+        # OBTENER PRODUCTOS ORDENADOS Y CON PRECIO
+        df_prod_info = pd.read_sql("SELECT medida, seccion, precio FROM diametros", conn)
+        df_prod_info['num'] = df_prod_info['medida'].str.extract(r'(\d+)').astype(float)
+        seccion_order = {"SIN ARMADURA": 1, "HORMIGON ARMADO": 2, "CON ESPIGA": 3, "TUBERIA CLASE II": 4, "TAPAS PEATONALES": 5}
+        df_prod_info['order_sec'] = df_prod_info['seccion'].map(seccion_order)
+        df_prod_info = df_prod_info.sort_values(['order_sec', 'num'])
+        
+        # Mapeo de nombre visible a precio para cálculos
+        dict_precios = {f"{r['medida']} ({r['seccion']})": r['precio'] for _, r in df_prod_info.iterrows()}
         listado_cli = [f"{r['nombre']} ({r['empresa']})" for _, r in df_c.iterrows()] if not df_c.empty else ["Sin clientes"]
-        listado_prod = [f"{r['medida']} ({r['seccion']})" for _, r in df_d.iterrows()] if not df_d.empty else ["Sin productos"]
+        listado_prod = list(dict_precios.keys())
         
         with st.form("f_v_multi"):
-            st.subheader("Paso 1: Cliente y Selección de Productos")
-            c1, c2 = st.columns([1, 2])
-            cl_full = c1.selectbox("Cliente", ["Seleccione..."] + listado_cli)
-            prods_sel = c2.multiselect("Seleccionar Productos para esta venta", listado_prod)
+            st.subheader("🛒 Selección de Venta")
+            c_cl, c_pr = st.columns([1, 2])
+            cl_full = c_cl.selectbox("Cliente", ["Seleccione..."] + listado_cli)
+            prods_sel = c_pr.multiselect("Seleccionar Productos (Ordenados por catálogo)", listado_prod)
             
             st.markdown("---")
-            st.subheader("Paso 2: Cantidades de Compra")
-            # Diccionario para guardar las cantidades dinámicas
-            dict_cantidades = {}
+            st.subheader("📐 Detalle de Cantidades y Precios")
+            
+            # Cabecera de la tabla de compra
+            h1, h2, h3, h4, h5 = st.columns([3, 1, 1, 1, 1.5])
+            h1.write("**Producto**")
+            h2.write("**Valor Unit.**")
+            h3.write("**% Desc.**")
+            h4.write("**Cantidad**")
+            h5.write("**Subtotal**")
+            
+            total_venta = 0.0
+            data_final = [] # Para guardar los registros que se insertarán
+
             if prods_sel:
                 for p in prods_sel:
-                    # Generamos un campo por cada producto seleccionado
-                    dict_cantidades[p] = st.number_input(f"Cantidad para: {p}", min_value=1, step=1, value=None, placeholder="0", key=f"q_{p}")
+                    p_unit = dict_precios[p]
+                    r1, r2, r3, r4, r5 = st.columns([3, 1, 1, 1, 1.5])
+                    
+                    r1.write(f"**{p}**")
+                    r2.write(f"${p_unit:.2f}")
+                    desc = r3.number_input("%", min_value=0, max_value=100, value=0, key=f"d_{p}", step=1)
+                    cant = r4.number_input("Cant.", min_value=1, step=1, value=None, placeholder="0", key=f"q_{p}")
+                    
+                    subtotal = 0.0
+                    if cant:
+                        # Cálculo: (Precio * Cant) * (1 - Desc/100)
+                        subtotal = (p_unit * cant) * (1 - (desc / 100))
+                    
+                    r5.write(f"**${subtotal:.2f}**")
+                    total_venta += subtotal
+                    if cant:
+                        data_final.append((p, cant, desc))
+
+                st.markdown(f'<div class="total-row">VALOR TOTAL DE COMPRA: ${total_venta:.2f}</div>', unsafe_allow_html=True)
             else:
-                st.info("Selecciona al menos un producto arriba para ingresar cantidades.")
+                st.info("Seleccione productos arriba para generar el cuadro de compra.")
 
             if st.form_submit_button("🚀 Registrar Venta Completa"):
-                if cl_full != "Seleccione..." and prods_sel:
+                if cl_full != "Seleccione..." and data_final:
                     cl_pure = cl_full.split(" (")[0]
                     fecha_hoy = str(obtener_fecha_ecuador())
-                    exito = True
-                    for p, cant in dict_cantidades.items():
-                        if cant:
-                            conn.execute("INSERT INTO pedidos (fecha, cliente, diametro, cantidad_total, estado, observaciones) VALUES (?,?,?,?,?,?)", (fecha_hoy, cl_pure, p, cant, 'Pendiente', ''))
-                        else:
-                            exito = False
-                    if exito:
-                        conn.commit(); st.success("✅ Venta múltiple registrada correctamente."); st.rerun()
-                    else:
-                        st.error("❌ Por favor ingresa cantidades para todos los productos seleccionados.")
+                    for p_name, n_cant, p_desc in data_final:
+                        obs = f"Desc: {p_desc}%" if p_desc > 0 else ""
+                        conn.execute("INSERT INTO pedidos (fecha, cliente, diametro, cantidad_total, estado, observaciones) VALUES (?,?,?,?,?,?)", (fecha_hoy, cl_pure, p_name, n_cant, 'Pendiente', obs))
+                    conn.commit(); st.success("✅ Venta múltiple registrada."); st.rerun()
 
-        st.divider(); st.subheader("🔍 Consultar Estado de Pedidos y Despachos")
+        st.divider(); st.subheader("🔍 Consultar Estado de Pedidos")
         cf1, cf2, cf3 = st.columns(3); f_cli = cf1.selectbox("Filtrar por Cliente", ["Todos"] + [r['nombre'] for _, r in df_c.iterrows()])
         fv_d = cf2.date_input("Desde", obtener_fecha_ecuador()-timedelta(days=30), key="fv1"); fv_h = cf3.date_input("Hasta", obtener_fecha_ecuador(), key="fv2")
-        q = "SELECT p.id as ID, p.fecha as 'Fecha Pedido', p.cliente as Cliente, p.diametro as Producto, p.cantidad_total as 'Cant. Compra', IFNULL(SUM(e.cantidad_entregada), 0) as 'Cant. Despachada', MAX(e.fecha) as 'Último Despacho', (p.cantidad_total - IFNULL(SUM(e.cantidad_entregada), 0)) as Saldo, p.estado as Estado FROM pedidos p LEFT JOIN entregas e ON p.id = e.pedido_id WHERE p.fecha BETWEEN ? AND ?"
+        q = "SELECT p.id as ID, p.fecha as 'Fecha Pedido', p.cliente as Cliente, p.diametro as Producto, p.cantidad_total as 'Cant. Compra', IFNULL(SUM(e.cantidad_entregada), 0) as 'Cant. Despachada', MAX(e.fecha) as 'Último Despacho', (p.cantidad_total - IFNULL(SUM(e.cantidad_entregada), 0)) as Saldo, p.estado as Estado, p.observaciones as Info FROM pedidos p LEFT JOIN entregas e ON p.id = e.pedido_id WHERE p.fecha BETWEEN ? AND ?"
         p_q = [str(fv_d), str(fv_h)]
         if f_cli != "Todos": q += " AND p.cliente = ?"; p_q.append(f_cli)
         q += " GROUP BY p.id ORDER BY p.fecha DESC"
         df_v_h = pd.read_sql(q, conn, params=tuple(p_q))
-        df_v_h['Último Despacho'] = df_v_h['Último Despacho'].fillna("-")
-        st.dataframe(df_v_h, use_container_width=True, hide_index=True)
-        
-        st.markdown("---"); st.subheader("🛠️ Editar o Borrar Pedido")
-        all_v_ids = pd.read_sql("SELECT id FROM pedidos ORDER BY id DESC", conn)
-        with st.form("f_edit_ped"):
-            c1, c2, c3, c4, c5 = st.columns([1, 2, 2, 1, 1])
-            v_id = c1.selectbox("ID", all_v_ids['id'].tolist() if not all_v_ids.empty else ["-"])
-            v_cl = c2.selectbox("Nuevo Cliente", [r['nombre'] for _, r in df_c.iterrows()] if not df_c.empty else ["-"])
-            v_pr = c3.selectbox("Nuevo Producto", listado_prod); v_ca = c4.number_input("Nueva Cant.", min_value=1, value=None, placeholder="0"); v_es = c5.selectbox("Estado", ["Pendiente", "Entregado"])
-            if st.form_submit_button("✅ Actualizar"):
-                if v_id != "-" and v_ca: conn.execute("UPDATE pedidos SET cliente=?, diametro=?, cantidad_total=?, estado=? WHERE id=?", (v_cl, v_pr, v_ca, v_es, v_id)); conn.commit(); st.rerun()
-            if st.form_submit_button("🗑️ Borrar"):
-                if v_id != "-": conn.execute("DELETE FROM pedidos WHERE id=?", (v_id,)); conn.execute("DELETE FROM entregas WHERE pedido_id=?", (v_id,)); conn.commit(); st.rerun()
+        st.dataframe(df_v_h.fillna("-"), use_container_width=True, hide_index=True)
 
     elif opcion == menu[3]:
         st.header("🚚 Control de Despachos")
@@ -237,27 +247,23 @@ if login():
             st.table(pedidos_p)
             with st.form("f_desp"):
                 c1, c2, c3 = st.columns(3)
-                sel_p = c1.selectbox("Seleccionar Pedido", [f"ID {r['id']} - {r['cliente']} ({r['diametro']} | Saldo: {r['saldo']})" for _, r in pedidos_p.iterrows()])
-                c_desp = c2.number_input("Cant. a Despachar", min_value=1, value=None, placeholder="0")
+                sel_p = c1.selectbox("Pedido", [f"ID {r['id']} - {r['cliente']} ({r['diametro']} | Saldo: {r['saldo']})" for _, r in pedidos_p.iterrows()])
+                c_desp = c2.number_input("Cant. Despacho", min_value=1, value=None, placeholder="0")
                 f_desp = c3.date_input("Fecha", obtener_fecha_ecuador())
-                if st.form_submit_button("Registrar Despacho"):
+                if st.form_submit_button("Registrar"):
                     if c_desp:
                         pid = int(sel_p.split(" ")[1]); s_act = int(sel_p.split("Saldo: ")[1].replace(")", ""))
                         if c_desp <= s_act:
                             conn.execute("INSERT INTO entregas (pedido_id, fecha, cantidad_entregada) VALUES (?,?,?)", (pid, str(f_desp), c_desp))
                             if c_desp == s_act: conn.execute("UPDATE pedidos SET estado='Entregado' WHERE id=?", (pid,))
                             conn.commit(); st.success("✅ Despachado"); st.rerun()
-                        else: st.error("❌ Excede saldo")
-        else: st.info("✅ Todo entregado.")
 
     elif opcion == menu[4]:
         st.header("⚙️ Administración de Datos")
         if not st.session_state.config_autenticado:
             with st.form("admin_lock"):
-                cl_adm = st.text_input("Clave de Administrador", type="password")
-                if st.form_submit_button("Desbloquear"):
-                    if cl_adm == "Tubos2026": st.session_state.config_autenticado = True; st.rerun()
-                    else: st.error("❌ Incorrecta")
+                if st.text_input("Clave", type="password") == "Tubos2026" and st.form_submit_button("Entrar"):
+                    st.session_state.config_autenticado = True; st.rerun()
         else:
             t1, t2, t3 = st.tabs(["📏 Catálogo", "👥 Clientes", "💰 IVA"])
             with t1:
@@ -281,7 +287,7 @@ if login():
                 with c_b:
                     if not df_cat.empty:
                         with st.form("b_d"):
-                            b_sel = st.selectbox("Borrar", df_cat['medida'].tolist())
+                            b_sel = st.selectbox("Borrar", df_cat['medida'].tolist()); 
                             if st.form_submit_button("Borrar"): conn.execute("DELETE FROM diametros WHERE medida=?", (b_sel,)); conn.commit(); st.rerun()
             with t2:
                 df_cli = pd.read_sql("SELECT empresa, nombre, telefono FROM clientes ORDER BY nombre ASC", conn)
