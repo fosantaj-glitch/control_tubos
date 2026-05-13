@@ -113,14 +113,11 @@ if login():
             else: st.sidebar.error("❌ Error al guardar")
                 
     if st.sidebar.button("🚪 Cerrar Sesión"):
-        st.session_state.autenticado = False; st.session_state.config_autenticado = False; st.session_state.datos_cargados = False; st.rerun()
+        st.session_state.autenticado = False; st.session_state.datos_cargados = False; st.rerun()
 
     st.sidebar.divider()
     menu = ["📊 Resumen de Patio", "🧱 Fabricación Diaria", "📝 Pedidos y Ventas", "🚚 Despachos", "⚙️ Configuración"]
     opcion = st.sidebar.radio("MENÚ", menu)
-
-    # AQUÍ ESTÁ LA LÍNEA QUE FALTABA PARA VOLVER A CERRAR EL CANDADO
-    if opcion != menu[4]: st.session_state.config_autenticado = False
 
     conn = get_connection()
     res_iva = conn.execute("SELECT valor FROM configuracion WHERE parametro='iva'").fetchone()
@@ -324,8 +321,8 @@ if login():
                             st.table(dfm.assign(idx='').set_index('idx'))
                 
                 st.divider()
-                c_add, c_edit, c_del = st.columns(3)
-                with c_add:
+                c_a, c_e, c_b = st.columns(3)
+                with c_a:
                     with st.form("a_d", clear_on_submit=True):
                         st.write("**Nuevo Producto**")
                         n_sec = st.selectbox("Sección", ["SIN ARMADURA", "HORMIGON ARMADO", "CON ESPIGA", "TUBERIA CLASE II", "TAPAS PEATONALES"])
