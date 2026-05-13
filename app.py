@@ -157,30 +157,32 @@ if login():
         df_hist_p = pd.read_sql("SELECT id, fecha, diametro, cantidad FROM produccion WHERE fecha BETWEEN ? AND ? ORDER BY fecha DESC", conn, params=(str(f_desde), str(f_hasta)))
         
         if df_hist_p.empty:
-            st.info("⚠️ No se encontraron registros en este periodo.")
+            st.info("⚠️ No se encontraron registros de fabricación en este periodo.")
             st.dataframe(pd.DataFrame(columns=["id", "fecha", "diametro", "cantidad"]), use_container_width=True, hide_index=True)
         else:
             st.dataframe(df_hist_p, use_container_width=True, hide_index=True)
 
         st.markdown("---")
         st.subheader("🛠️ Editar o Borrar Fabricación")
-        df_all_p = pd.read_sql("SELECT * FROM produccion ORDER BY id DESC", conn)
-        if not df_all_p.empty:
-            with st.form("f_edit_prod"):
-                c1, c2, c3, c4 = st.columns([1, 2, 2, 1])
-                id_sel = c1.selectbox("ID a Modificar", df_all_p['id'].tolist())
-                f_new = c2.date_input("Nueva Fecha")
-                d_new = c3.selectbox("Nuevo Producto", listado_prod)
-                n_new = c4.number_input("Nueva Cantidad", min_value=1, step=1)
-                b1, b2 = st.columns(2)
-                if b1.form_submit_button("✅ Actualizar", use_container_width=True):
+        # El formulario lee TODOS los IDs para que sea permanente
+        df_all_p = pd.read_sql("SELECT id FROM produccion ORDER BY id DESC", conn)
+        with st.form("f_edit_prod"):
+            c1, c2, c3, c4 = st.columns([1, 2, 2, 1])
+            lista_ids_p = df_all_p['id'].tolist() if not df_all_p.empty else ["-"]
+            id_sel = c1.selectbox("ID a Modificar", lista_ids_p)
+            f_new = c2.date_input("Nueva Fecha")
+            d_new = c3.selectbox("Nuevo Producto", listado_prod)
+            n_new = c4.number_input("Nueva Cantidad", min_value=1, step=1)
+            
+            b1, b2 = st.columns(2)
+            if b1.form_submit_button("✅ Actualizar", use_container_width=True):
+                if id_sel != "-":
                     conn.execute("UPDATE produccion SET fecha=?, diametro=?, cantidad=? WHERE id=?", (str(f_new), d_new, n_new, id_sel))
                     conn.commit(); st.success("Actualizado"); time.sleep(1); st.rerun()
-                if b2.form_submit_button("🗑️ Borrar", use_container_width=True):
+            if b2.form_submit_button("🗑️ Borrar", use_container_width=True):
+                if id_sel != "-":
                     conn.execute("DELETE FROM produccion WHERE id=?", (id_sel,))
                     conn.commit(); st.warning("Eliminado"); time.sleep(1); st.rerun()
-        else:
-            st.warning("No hay registros en el sistema para editar o borrar.")
 
     elif opcion == menu[2]:
         st.header("📝 Registro de Pedidos y Ventas")
@@ -193,7 +195,6 @@ if login():
             c1, c2, c3 = st.columns(3)
             cl = c1.selectbox("Cliente", ["Seleccione..."] + listado_cli)
             d = c2.selectbox("Producto", ["Seleccione..."] + listado_prod)
-            # CAMBIO: Se renombró a "Cantidad de compra"
             n = c3.number_input("Cantidad de compra", min_value=1, step=1)
             if st.form_submit_button("Registrar Pedido"):
                 if cl not in ["Seleccione...", "Sin clientes"] and d not in ["Seleccione...", "Sin productos"]:
@@ -203,13 +204,12 @@ if login():
         st.divider()
         st.subheader("🔍 Consultar Estado de Pedidos y Despachos")
         
-        # NUEVOS FILTROS DE CLIENTE Y FECHA
         cf1, cf2, cf3 = st.columns(3)
         filtro_cli = cf1.selectbox("Filtrar por Cliente", ["Todos"] + listado_cli)
         fv_desde = cf2.date_input("Fecha Desde", obtener_fecha_ecuador() - timedelta(days=30), key="fv1")
         fv_hasta = cf3.date_input("Fecha Hasta", obtener_fecha_ecuador(), key="fv2")
         
-        # CONSULTA MAESTRA QUE CRUZA PEDIDOS Y ENTREGAS PARA CALCULAR EL SALDO
+        # Consulta avanzada con Saldo y Entregas Parciales
         query = """
         SELECT 
             p.id as ID, p.fecha as 'Fecha Pedido', p.cliente as Cliente, p.diametro as Producto, 
@@ -239,31 +239,31 @@ if login():
 
         st.markdown("---")
         st.subheader("🛠️ Editar o Borrar Pedido")
-        df_all_v = pd.read_sql("SELECT * FROM pedidos ORDER BY id DESC", conn)
-        if not df_all_v.empty:
-            with st.form("f_edit_ped"):
-                c1, c2, c3, c4, c5 = st.columns([1, 2, 2, 1, 1])
-                id_v_sel = c1.selectbox("ID a Modificar", df_all_v['id'].tolist())
-                cl_v_new = c2.selectbox("Nuevo Cliente", listado_cli)
-                d_v_new = c3.selectbox("Nuevo Producto", listado_prod)
-                n_v_new = c4.number_input("Nueva Cant. Compra", min_value=1, step=1)
-                est_v_new = c5.selectbox("Forzar Estado", ["Pendiente", "Entregado"])
-                
-                b1, b2 = st.columns(2)
-                if b1.form_submit_button("✅ Actualizar Pedido", use_container_width=True):
+        # El formulario lee TODOS los IDs para que sea permanente
+        df_all_v = pd.read_sql("SELECT id FROM pedidos ORDER BY id DESC", conn)
+        with st.form("f_edit_ped"):
+            c1, c2, c3, c4, c5 = st.columns([1, 2, 2, 1, 1])
+            lista_ids_v = df_all_v['id'].tolist() if not df_all_v.empty else ["-"]
+            id_v_sel = c1.selectbox("ID a Modificar", lista_ids_v)
+            cl_v_new = c2.selectbox("Nuevo Cliente", listado_cli)
+            d_v_new = c3.selectbox("Nuevo Producto", listado_prod)
+            n_v_new = c4.number_input("Nueva Cant. Compra", min_value=1, step=1)
+            est_v_new = c5.selectbox("Forzar Estado", ["Pendiente", "Entregado"])
+            
+            b1, b2 = st.columns(2)
+            if b1.form_submit_button("✅ Actualizar Pedido", use_container_width=True):
+                if id_v_sel != "-":
                     conn.execute("UPDATE pedidos SET cliente=?, diametro=?, cantidad_total=?, estado=? WHERE id=?", (cl_v_new, d_v_new, n_v_new, est_v_new, id_v_sel))
                     conn.commit(); st.success("Pedido Actualizado"); time.sleep(1); st.rerun()
-                if b2.form_submit_button("🗑️ Borrar Pedido", use_container_width=True):
+            if b2.form_submit_button("🗑️ Borrar Pedido", use_container_width=True):
+                if id_v_sel != "-":
                     conn.execute("DELETE FROM pedidos WHERE id=?", (id_v_sel,))
-                    # También borramos las entregas asociadas a este pedido para evitar basura en la BD
+                    # Borramos también las entregas asociadas a ese pedido para mantener limpia la BD
                     conn.execute("DELETE FROM entregas WHERE pedido_id=?", (id_v_sel,))
-                    conn.commit(); st.warning("Pedido y Despachos Eliminados"); time.sleep(1); st.rerun()
-        else:
-            st.warning("No hay pedidos en el sistema para editar o borrar.")
+                    conn.commit(); st.warning("Pedido y Entregas Eliminadas"); time.sleep(1); st.rerun()
 
     elif opcion == menu[3]:
         st.header("🚚 Control de Despachos (Entregas Parciales o Totales)")
-        # Solo trae los pedidos que tienen un saldo pendiente
         query_pendientes = """
         SELECT p.id, p.fecha, p.cliente, p.diametro, p.cantidad_total, 
                (p.cantidad_total - IFNULL(SUM(e.cantidad_entregada), 0)) as saldo
@@ -289,9 +289,7 @@ if login():
                     if cant_despacho > saldo_actual:
                         st.error(f"❌ No puedes despachar más del saldo pendiente ({saldo_actual}).")
                     else:
-                        # Inserta la entrega en la base de datos
                         conn.execute("INSERT INTO entregas (pedido_id, fecha, cantidad_entregada) VALUES (?,?,?)", (pid, str(fecha_desp), cant_despacho))
-                        # Si con esto el saldo llega a 0, se marca como Entregado
                         if cant_despacho == saldo_actual:
                             conn.execute("UPDATE pedidos SET estado='Entregado' WHERE id=?", (pid,))
                         conn.commit(); st.success(f"✅ {cant_despacho} tubos despachados."); time.sleep(1); st.rerun()
