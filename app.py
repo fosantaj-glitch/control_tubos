@@ -143,9 +143,7 @@ if login():
             c1, c2, c3 = st.columns(3)
             f = c1.date_input("Fecha", obtener_fecha_ecuador())
             d = c2.selectbox("Producto", ["Seleccione..."] + listado_prod)
-            # Modificación: Ceros dinámicos
             n = c3.number_input("Cantidad", min_value=1, step=1, value=None, placeholder="0")
-            
             if st.form_submit_button("Guardar Fabricación"):
                 if d != "Seleccione..." and d != "Sin productos" and n:
                     conn.execute("INSERT INTO produccion (fecha, diametro, cantidad) VALUES (?,?,?)", (str(f), d, n))
@@ -196,7 +194,6 @@ if login():
             c1, c2, c3 = st.columns(3)
             cl = c1.selectbox("Cliente", ["Seleccione..."] + listado_cli)
             d = c2.selectbox("Producto", ["Seleccione..."] + listado_prod)
-            # Modificación: Ceros dinámicos
             n = c3.number_input("Cantidad de compra", min_value=1, step=1, value=None, placeholder="0")
             
             if st.form_submit_button("Registrar Pedido"):
@@ -279,7 +276,6 @@ if login():
             with st.form("desp"):
                 c1, c2, c3 = st.columns(3)
                 sel = c1.selectbox("Seleccionar Pedido", [f"ID {r['id']} - {r['cliente']} ({r['diametro']} | Saldo: {r['saldo']})" for _, r in pedidos.iterrows()])
-                # Modificación: Ceros dinámicos
                 cant_despacho = c2.number_input("Cantidad a Despachar", min_value=1, step=1, value=None, placeholder="0")
                 fecha_desp = c3.date_input("Fecha de Despacho", obtener_fecha_ecuador())
                 
@@ -325,8 +321,8 @@ if login():
                             st.table(dfm.assign(idx='').set_index('idx'))
                 
                 st.divider()
-                c_add, c_edit, c_del = st.columns(3)
-                with c_add:
+                c_a, c_e, c_b = st.columns(3)
+                with c_a:
                     with st.form("a_d", clear_on_submit=True):
                         st.write("**Nuevo Producto**")
                         n_sec = st.selectbox("Sección", ["SIN ARMADURA", "HORMIGON ARMADO", "CON ESPIGA", "TUBERIA CLASE II", "TAPAS PEATONALES"])
@@ -366,7 +362,7 @@ if login():
                 with c1:
                     with st.form("a_c", clear_on_submit=True):
                         st.write("**Registrar**")
-                        nn, nt = st.text_input("Nombre")
+                        nn = st.text_input("Nombre")
                         nt = st.text_input("Teléfono")
                         if st.form_submit_button("Guardar"):
                             if nn: 
