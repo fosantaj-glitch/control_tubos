@@ -113,11 +113,15 @@ if login():
             else: st.sidebar.error("❌ Error al guardar")
                 
     if st.sidebar.button("🚪 Cerrar Sesión"):
-        st.session_state.autenticado = False; st.session_state.datos_cargados = False; st.rerun()
+        st.session_state.autenticado = False; st.session_state.config_autenticado = False; st.session_state.datos_cargados = False; st.rerun()
 
     st.sidebar.divider()
     menu = ["📊 Resumen de Patio", "🧱 Fabricación Diaria", "📝 Pedidos y Ventas", "🚚 Despachos", "⚙️ Configuración"]
     opcion = st.sidebar.radio("MENÚ", menu)
+
+    # LÍNEA CORREGIDA PARA CERRAR EL CANDADO AUTOMÁTICAMENTE
+    if opcion != menu[4]: 
+        st.session_state.config_autenticado = False
 
     conn = get_connection()
     res_iva = conn.execute("SELECT valor FROM configuracion WHERE parametro='iva'").fetchone()
