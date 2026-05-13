@@ -62,9 +62,7 @@ def init_db():
     c.execute('CREATE TABLE IF NOT EXISTS pedidos (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, cliente TEXT, diametro TEXT, cantidad_total INTEGER, estado TEXT, observaciones TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS entregas (id INTEGER PRIMARY KEY AUTOINCREMENT, pedido_id INTEGER, fecha TEXT, cantidad_entregada INTEGER)')
     c.execute('CREATE TABLE IF NOT EXISTS diametros (id INTEGER PRIMARY KEY AUTOINCREMENT, medida TEXT, tipo TEXT, seccion TEXT, precio REAL)')
-    # Actualización de Clientes con Empresa
     c.execute('CREATE TABLE IF NOT EXISTS clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, empresa TEXT, nombre TEXT, telefono TEXT)')
-    # Blindaje: Intentar añadir columna si ya existe la tabla pero es vieja
     try: c.execute('ALTER TABLE clientes ADD COLUMN empresa TEXT')
     except: pass
     c.execute('CREATE TABLE IF NOT EXISTS configuracion (id INTEGER PRIMARY KEY AUTOINCREMENT, parametro TEXT, valor REAL)')
@@ -138,208 +136,172 @@ if login():
             resumen['Stock Disponible'] = resumen['fab'] - resumen['ped']
             resumen.columns = ['Producto / Diámetro', 'Total Fabricado', 'Total Vendido', 'Stock en Patio']
             st.dataframe(resumen, use_container_width=True, hide_index=True)
-        else: st.info("No hay datos de fabricación.")
+        else: st.info("No hay datos.")
 
     elif opcion == menu[1]:
         st.header("🧱 Registro de Fabricación Diaria")
         df_d = pd.read_sql("SELECT medida, seccion FROM diametros ORDER BY medida", conn)
-        listado_prod = [f"{r['medida']} ({r['seccion']})" for _, r in df_d.iterrows()] if not df_d.empty else ["Sin productos"]
-        
+        listado_p = [f"{r['medida']} ({r['seccion']})" for _, r in df_d.iterrows()] if not df_d.empty else ["Sin productos"]
         with st.form("f_p"):
             c1, c2, c3 = st.columns(3)
             f = c1.date_input("Fecha", obtener_fecha_ecuador())
-            d = c2.selectbox("Producto", ["Seleccione..."] + listado_prod)
+            d = c2.selectbox("Producto", ["Seleccione..."] + listado_p)
             n = c3.number_input("Cantidad", min_value=1, step=1, value=None, placeholder="0")
             if st.form_submit_button("Guardar Fabricación"):
-                if d != "Seleccione..." and d != "Sin productos" and n:
+                if d != "Seleccione..." and n:
                     conn.execute("INSERT INTO produccion (fecha, diametro, cantidad) VALUES (?,?,?)", (str(f), d, n))
                     conn.commit(); st.success("Guardado"); st.rerun()
-
-        st.divider()
-        st.subheader("🔍 Consultar Producción por Periodo")
-        c1, c2 = st.columns(2)
-        f_desde = c1.date_input("Fecha Desde", obtener_fecha_ecuador() - timedelta(days=30), key="fp1")
-        f_hasta = c2.date_input("Fecha Hasta", obtener_fecha_ecuador(), key="fp2")
-        df_hist_p = pd.read_sql("SELECT id, fecha, diametro, cantidad FROM produccion WHERE fecha BETWEEN ? AND ? ORDER BY fecha DESC", conn, params=(str(f_desde), str(f_hasta)))
-        
-        if df_hist_p.empty:
-            st.info("⚠️ No se encontraron registros.")
-            st.dataframe(pd.DataFrame(columns=["id", "fecha", "diametro", "cantidad"]), use_container_width=True, hide_index=True)
-        else:
-            st.dataframe(df_hist_p, use_container_width=True, hide_index=True)
-
-        st.markdown("---")
-        st.subheader("🛠️ Editar o Borrar Fabricación")
-        df_all_p = pd.read_sql("SELECT id FROM produccion ORDER BY id DESC", conn)
-        with st.form("f_edit_prod"):
-            c1, c2, c3, c4 = st.columns([1, 2, 2, 1])
-            lista_ids_p = df_all_p['id'].tolist() if not df_all_p.empty else ["-"]
-            id_sel = c1.selectbox("ID a Modificar", lista_ids_p)
-            f_new = c2.date_input("Nueva Fecha")
-            d_new = c3.selectbox("Nuevo Producto", listado_prod)
-            n_new = c4.number_input("Nueva Cantidad", min_value=1, step=1, value=None, placeholder="0")
-            if b1 := st.form_submit_button("✅ Actualizar", use_container_width=True):
-                if id_sel != "-" and n_new:
-                    conn.execute("UPDATE produccion SET fecha=?, diametro=?, cantidad=? WHERE id=?", (str(f_new), d_new, n_new, id_sel))
-                    conn.commit(); st.success("Actualizado"); time.sleep(1); st.rerun()
-            if b2 := st.form_submit_button("🗑️ Borrar", use_container_width=True):
-                if id_sel != "-":
-                    conn.execute("DELETE FROM produccion WHERE id=?", (id_sel,))
-                    conn.commit(); st.warning("Eliminado"); time.sleep(1); st.rerun()
+        # Visor y Edición permanente...
+        st.divider(); st.subheader("🔍 Consultar Producción")
+        f1, f2 = st.columns(2); fd = f1.date_input("Desde", obtener_fecha_ecuador()-timedelta(days=30), key="fp1"); fh = f2.date_input("Hasta", obtener_fecha_ecuador(), key="fp2")
+        df_h = pd.read_sql("SELECT * FROM produccion WHERE fecha BETWEEN ? AND ? ORDER BY id DESC", conn, params=(str(fd), str(fh)))
+        st.dataframe(df_h, use_container_width=True, hide_index=True)
+        st.markdown("---"); st.subheader("🛠️ Editar o Borrar")
+        all_ids = pd.read_sql("SELECT id FROM produccion ORDER BY id DESC", conn)
+        with st.form("edit_p"):
+            c1, c2, c3, c4 = st.columns([1,2,2,1])
+            ids = c1.selectbox("ID", all_ids['id'].tolist() if not all_ids.empty else ["-"])
+            nf, nd, nn = c2.date_input("Nueva Fecha"), c3.selectbox("Nuevo Producto", listado_p), c4.number_input("Nueva Cant.", min_value=1, value=None, placeholder="0")
+            if st.form_submit_button("✅ Actualizar"):
+                if ids != "-" and nn: conn.execute("UPDATE produccion SET fecha=?, diametro=?, cantidad=? WHERE id=?", (str(nf), nd, nn, ids)); conn.commit(); st.rerun()
+            if st.form_submit_button("🗑️ Borrar"):
+                if ids != "-": conn.execute("DELETE FROM produccion WHERE id=?", (ids,)); conn.commit(); st.rerun()
 
     elif opcion == menu[2]:
         st.header("📝 Registro de Pedidos y Ventas")
         df_c = pd.read_sql("SELECT nombre, empresa FROM clientes ORDER BY nombre", conn)
         df_d = pd.read_sql("SELECT medida, seccion FROM diametros ORDER BY medida", conn)
-        # Mostrar empresa al seleccionar cliente
         listado_cli = [f"{r['nombre']} ({r['empresa']})" for _, r in df_c.iterrows()] if not df_c.empty else ["Sin clientes"]
         listado_prod = [f"{r['medida']} ({r['seccion']})" for _, r in df_d.iterrows()] if not df_d.empty else ["Sin productos"]
         
-        with st.form("f_v"):
-            c1, c2, c3 = st.columns(3)
+        with st.form("f_v_multi"):
+            st.subheader("Paso 1: Cliente y Selección de Productos")
+            c1, c2 = st.columns([1, 2])
             cl_full = c1.selectbox("Cliente", ["Seleccione..."] + listado_cli)
-            d = c2.selectbox("Producto", ["Seleccione..."] + listado_prod)
-            n = c3.number_input("Cantidad de compra", min_value=1, step=1, value=None, placeholder="0")
-            if st.form_submit_button("Registrar Pedido"):
-                if cl_full != "Seleccione..." and d != "Seleccione..." and n:
+            prods_sel = c2.multiselect("Seleccionar Productos para esta venta", listado_prod)
+            
+            st.markdown("---")
+            st.subheader("Paso 2: Cantidades de Compra")
+            # Diccionario para guardar las cantidades dinámicas
+            dict_cantidades = {}
+            if prods_sel:
+                for p in prods_sel:
+                    # Generamos un campo por cada producto seleccionado
+                    dict_cantidades[p] = st.number_input(f"Cantidad para: {p}", min_value=1, step=1, value=None, placeholder="0", key=f"q_{p}")
+            else:
+                st.info("Selecciona al menos un producto arriba para ingresar cantidades.")
+
+            if st.form_submit_button("🚀 Registrar Venta Completa"):
+                if cl_full != "Seleccione..." and prods_sel:
                     cl_pure = cl_full.split(" (")[0]
-                    conn.execute("INSERT INTO pedidos (fecha, cliente, diametro, cantidad_total, estado, observaciones) VALUES (?,?,?,?,?,?)", (str(obtener_fecha_ecuador()), cl_pure, d, n, 'Pendiente', ''))
-                    conn.commit(); st.success("Registrado"); st.rerun()
+                    fecha_hoy = str(obtener_fecha_ecuador())
+                    exito = True
+                    for p, cant in dict_cantidades.items():
+                        if cant:
+                            conn.execute("INSERT INTO pedidos (fecha, cliente, diametro, cantidad_total, estado, observaciones) VALUES (?,?,?,?,?,?)", (fecha_hoy, cl_pure, p, cant, 'Pendiente', ''))
+                        else:
+                            exito = False
+                    if exito:
+                        conn.commit(); st.success("✅ Venta múltiple registrada correctamente."); st.rerun()
+                    else:
+                        st.error("❌ Por favor ingresa cantidades para todos los productos seleccionados.")
 
-        st.divider()
-        st.subheader("🔍 Consultar Estado de Pedidos y Despachos")
-        cf1, cf2, cf3 = st.columns(3)
-        filtro_cli = cf1.selectbox("Filtrar por Cliente", ["Todos"] + [r['nombre'] for _, r in df_c.iterrows()])
-        fv_desde = cf2.date_input("Fecha Desde", obtener_fecha_ecuador() - timedelta(days=30), key="fv1")
-        fv_hasta = cf3.date_input("Fecha Hasta", obtener_fecha_ecuador(), key="fv2")
+        st.divider(); st.subheader("🔍 Consultar Estado de Pedidos y Despachos")
+        cf1, cf2, cf3 = st.columns(3); f_cli = cf1.selectbox("Filtrar por Cliente", ["Todos"] + [r['nombre'] for _, r in df_c.iterrows()])
+        fv_d = cf2.date_input("Desde", obtener_fecha_ecuador()-timedelta(days=30), key="fv1"); fv_h = cf3.date_input("Hasta", obtener_fecha_ecuador(), key="fv2")
+        q = "SELECT p.id as ID, p.fecha as 'Fecha Pedido', p.cliente as Cliente, p.diametro as Producto, p.cantidad_total as 'Cant. Compra', IFNULL(SUM(e.cantidad_entregada), 0) as 'Cant. Despachada', MAX(e.fecha) as 'Último Despacho', (p.cantidad_total - IFNULL(SUM(e.cantidad_entregada), 0)) as Saldo, p.estado as Estado FROM pedidos p LEFT JOIN entregas e ON p.id = e.pedido_id WHERE p.fecha BETWEEN ? AND ?"
+        p_q = [str(fv_d), str(fv_h)]
+        if f_cli != "Todos": q += " AND p.cliente = ?"; p_q.append(f_cli)
+        q += " GROUP BY p.id ORDER BY p.fecha DESC"
+        df_v_h = pd.read_sql(q, conn, params=tuple(p_q))
+        df_v_h['Último Despacho'] = df_v_h['Último Despacho'].fillna("-")
+        st.dataframe(df_v_h, use_container_width=True, hide_index=True)
         
-        query = """
-        SELECT p.id as ID, p.fecha as 'Fecha Pedido', p.cliente as Cliente, p.diametro as Producto, 
-        p.cantidad_total as 'Cant. Compra', IFNULL(SUM(e.cantidad_entregada), 0) as 'Cant. Despachada',
-        MAX(e.fecha) as 'Último Despacho', (p.cantidad_total - IFNULL(SUM(e.cantidad_entregada), 0)) as Saldo, p.estado as Estado
-        FROM pedidos p LEFT JOIN entregas e ON p.id = e.pedido_id WHERE p.fecha BETWEEN ? AND ?
-        """
-        params = [str(fv_desde), str(fv_hasta)]
-        if filtro_cli != "Todos": query += " AND p.cliente = ?"; params.append(filtro_cli)
-        query += " GROUP BY p.id ORDER BY p.fecha DESC"
-        
-        df_hist_v = pd.read_sql(query, conn, params=tuple(params))
-        df_hist_v['Último Despacho'] = df_hist_v['Último Despacho'].fillna("-")
-        
-        if df_hist_v.empty: st.info("⚠️ Sin pedidos.")
-        else: st.dataframe(df_hist_v, use_container_width=True, hide_index=True)
-
-        st.markdown("---")
-        st.subheader("🛠️ Editar o Borrar Pedido")
-        df_all_v = pd.read_sql("SELECT id FROM pedidos ORDER BY id DESC", conn)
+        st.markdown("---"); st.subheader("🛠️ Editar o Borrar Pedido")
+        all_v_ids = pd.read_sql("SELECT id FROM pedidos ORDER BY id DESC", conn)
         with st.form("f_edit_ped"):
             c1, c2, c3, c4, c5 = st.columns([1, 2, 2, 1, 1])
-            id_v_sel = c1.selectbox("ID a Modificar", df_all_v['id'].tolist() if not df_all_v.empty else ["-"])
-            cl_v_new = c2.selectbox("Nuevo Cliente", [r['nombre'] for _, r in df_c.iterrows()] if not df_c.empty else ["-"])
-            d_v_new = c3.selectbox("Nuevo Producto", listado_prod)
-            n_v_new = c4.number_input("Nueva Cant. Compra", min_value=1, step=1, value=None, placeholder="0")
-            est_v_new = c5.selectbox("Estado", ["Pendiente", "Entregado"])
+            v_id = c1.selectbox("ID", all_v_ids['id'].tolist() if not all_v_ids.empty else ["-"])
+            v_cl = c2.selectbox("Nuevo Cliente", [r['nombre'] for _, r in df_c.iterrows()] if not df_c.empty else ["-"])
+            v_pr = c3.selectbox("Nuevo Producto", listado_prod); v_ca = c4.number_input("Nueva Cant.", min_value=1, value=None, placeholder="0"); v_es = c5.selectbox("Estado", ["Pendiente", "Entregado"])
             if st.form_submit_button("✅ Actualizar"):
-                if id_v_sel != "-" and n_v_new:
-                    conn.execute("UPDATE pedidos SET cliente=?, diametro=?, cantidad_total=?, estado=? WHERE id=?", (cl_v_new, d_v_new, n_v_new, est_v_new, id_v_sel))
-                    conn.commit(); st.success("Pedido Actualizado"); time.sleep(1); st.rerun()
+                if v_id != "-" and v_ca: conn.execute("UPDATE pedidos SET cliente=?, diametro=?, cantidad_total=?, estado=? WHERE id=?", (v_cl, v_pr, v_ca, v_es, v_id)); conn.commit(); st.rerun()
             if st.form_submit_button("🗑️ Borrar"):
-                if id_v_sel != "-":
-                    conn.execute("DELETE FROM pedidos WHERE id=?"); conn.execute("DELETE FROM entregas WHERE pedido_id=?", (id_v_sel, id_v_sel))
-                    conn.commit(); st.warning("Eliminado"); time.sleep(1); st.rerun()
+                if v_id != "-": conn.execute("DELETE FROM pedidos WHERE id=?", (v_id,)); conn.execute("DELETE FROM entregas WHERE pedido_id=?", (v_id,)); conn.commit(); st.rerun()
 
     elif opcion == menu[3]:
         st.header("🚚 Control de Despachos")
-        query_pendientes = "SELECT p.id, p.fecha, p.cliente, p.diametro, p.cantidad_total, (p.cantidad_total - IFNULL(SUM(e.cantidad_entregada), 0)) as saldo FROM pedidos p LEFT JOIN entregas e ON p.id = e.pedido_id GROUP BY p.id HAVING saldo > 0"
-        pedidos = pd.read_sql(query_pendientes, conn)
-        if not pedidos.empty:
-            st.table(pedidos)
-            with st.form("desp"):
+        query_p = "SELECT p.id, p.fecha, p.cliente, p.diametro, p.cantidad_total, (p.cantidad_total - IFNULL(SUM(e.cantidad_entregada), 0)) as saldo FROM pedidos p LEFT JOIN entregas e ON p.id = e.pedido_id GROUP BY p.id HAVING saldo > 0"
+        pedidos_p = pd.read_sql(query_p, conn)
+        if not pedidos_p.empty:
+            st.table(pedidos_p)
+            with st.form("f_desp"):
                 c1, c2, c3 = st.columns(3)
-                sel = c1.selectbox("Seleccionar Pedido", [f"ID {r['id']} - {r['cliente']} ({r['diametro']} | Saldo: {r['saldo']})" for _, r in pedidos.iterrows()])
-                cant_despacho = c2.number_input("Cantidad a Despachar", min_value=1, step=1, value=None, placeholder="0")
-                fecha_desp = c3.date_input("Fecha", obtener_fecha_ecuador())
+                sel_p = c1.selectbox("Seleccionar Pedido", [f"ID {r['id']} - {r['cliente']} ({r['diametro']} | Saldo: {r['saldo']})" for _, r in pedidos_p.iterrows()])
+                c_desp = c2.number_input("Cant. a Despachar", min_value=1, value=None, placeholder="0")
+                f_desp = c3.date_input("Fecha", obtener_fecha_ecuador())
                 if st.form_submit_button("Registrar Despacho"):
-                    if cant_despacho:
-                        pid = int(sel.split(" ")[1]); saldo_actual = int(sel.split("Saldo: ")[1].replace(")", ""))
-                        if cant_despacho <= saldo_actual:
-                            conn.execute("INSERT INTO entregas (pedido_id, fecha, cantidad_entregada) VALUES (?,?,?)", (pid, str(fecha_desp), cant_despacho))
-                            if cant_despacho == saldo_actual: conn.execute("UPDATE pedidos SET estado='Entregado' WHERE id=?", (pid,))
-                            conn.commit(); st.success("✅ Registrado"); time.sleep(1); st.rerun()
-                        else: st.error("❌ Excede el saldo")
+                    if c_desp:
+                        pid = int(sel_p.split(" ")[1]); s_act = int(sel_p.split("Saldo: ")[1].replace(")", ""))
+                        if c_desp <= s_act:
+                            conn.execute("INSERT INTO entregas (pedido_id, fecha, cantidad_entregada) VALUES (?,?,?)", (pid, str(f_desp), c_desp))
+                            if c_desp == s_act: conn.execute("UPDATE pedidos SET estado='Entregado' WHERE id=?", (pid,))
+                            conn.commit(); st.success("✅ Despachado"); st.rerun()
+                        else: st.error("❌ Excede saldo")
         else: st.info("✅ Todo entregado.")
 
     elif opcion == menu[4]:
         st.header("⚙️ Administración de Datos")
         if not st.session_state.config_autenticado:
             with st.form("admin_lock"):
-                cl_adm = st.text_input("Clave", type="password")
+                cl_adm = st.text_input("Clave de Administrador", type="password")
                 if st.form_submit_button("Desbloquear"):
                     if cl_adm == "Tubos2026": st.session_state.config_autenticado = True; st.rerun()
                     else: st.error("❌ Incorrecta")
         else:
-            t1, t2, t3 = st.tabs(["📏 Catálogo de Productos", "👥 Clientes", "💰 IVA"])
+            t1, t2, t3 = st.tabs(["📏 Catálogo", "👥 Clientes", "💰 IVA"])
             with t1:
-                df_diam = pd.read_sql("SELECT * FROM diametros", conn)
-                if not df_diam.empty:
-                    df_diam['num'] = df_diam['medida'].str.extract(r'(\d+)').astype(float)
-                    df_diam['Pulgadas'] = (df_diam['num'] / 25.4).apply(lambda x: f'{math.ceil(x)}"' if pd.notna(x) else "-")
-                    df_diam['Total'] = df_diam['precio'] * (1 + (VALOR_IVA / 100))
+                df_cat = pd.read_sql("SELECT * FROM diametros", conn)
+                if not df_cat.empty:
+                    df_cat['num'] = df_cat['medida'].str.extract(r'(\d+)').astype(float)
                     for s in ["SIN ARMADURA", "HORMIGON ARMADO", "CON ESPIGA", "TUBERIA CLASE II", "TAPAS PEATONALES"]:
                         st.markdown(f'<div class="titulo-seccion">{s}</div>', unsafe_allow_html=True)
-                        dfs = df_diam[df_diam['seccion'] == s].sort_values('num')
-                        if not dfs.empty:
-                            dfm = dfs[['medida', 'Pulgadas', 'tipo', 'precio', 'Total']].rename(columns={'medida': 'Medida (mm)', 'precio': 'Unitario ($)', 'Total': f'IVA {VALOR_IVA}%'})
-                            dfm['Unitario ($)'] = dfm['Unitario ($)'].apply(lambda x: f"${x:.2f}"); dfm[f'IVA {VALOR_IVA}%'] = dfm[f'IVA {VALOR_IVA}%'].apply(lambda x: f"${x:.2f}")
-                            st.table(dfm.assign(idx='').set_index('idx'))
-                st.divider(); ca, ce, cb = st.columns(3)
-                with ca:
-                    with st.form("a_d", clear_on_submit=True):
-                        st.write("**Nuevo**"); nsec = st.selectbox("Sección", ["SIN ARMADURA", "HORMIGON ARMADO", "CON ESPIGA", "TUBERIA CLASE II", "TAPAS PEATONALES"]); nm = st.text_input("Medida"); nt = st.text_input("Tipo"); np = st.number_input("Precio", format="%.2f")
-                        if st.form_submit_button("Guardar"): conn.execute("INSERT INTO diametros (medida, tipo, seccion, precio) VALUES (?,?,?,?)", (nm, nt, nsec, np)); conn.commit(); st.rerun()
-                with ce:
-                    if not df_diam.empty:
+                        dfs = df_cat[df_cat['seccion'] == s].sort_values('num')
+                        if not dfs.empty: st.table(dfs[['medida', 'tipo', 'precio']].assign(idx='').set_index('idx'))
+                st.divider(); c_a, c_e, c_b = st.columns(3)
+                with c_a:
+                    with st.form("a_d"):
+                        sec = st.selectbox("Sección", ["SIN ARMADURA", "HORMIGON ARMADO", "CON ESPIGA", "TUBERIA CLASE II", "TAPAS PEATONALES"]); med, tip, pre = st.text_input("Medida"), st.text_input("Tipo"), st.number_input("Precio", format="%.2f")
+                        if st.form_submit_button("Añadir"): conn.execute("INSERT INTO diametros (medida, tipo, seccion, precio) VALUES (?,?,?,?)", (med, tip, sec, pre)); conn.commit(); st.rerun()
+                with c_e:
+                    if not df_cat.empty:
                         with st.form("e_d"):
-                            st.write("**Editar**"); sel_m = st.selectbox("Elegir", df_diam['medida'].tolist()); nsec2 = st.selectbox("Nueva Sec.", ["SIN ARMADURA", "HORMIGON ARMADO", "CON ESPIGA", "TUBERIA CLASE II", "TAPAS PEATONALES"]); nm2 = st.text_input("Nueva Med."); nt2 = st.text_input("Nuevo Tipo"); np2 = st.number_input("Nuevo Precio", format="%.2f")
-                            if st.form_submit_button("Actualizar"): conn.execute("UPDATE diametros SET seccion=?, medida=?, tipo=?, precio=? WHERE medida=?", (nsec2, nm2, nt2, np2, sel_m)); conn.commit(); st.rerun()
-                with cb:
-                    if not df_diam.empty:
+                            sel = st.selectbox("Elegir", df_cat['medida'].tolist()); nsec = st.selectbox("Secc", ["SIN ARMADURA", "HORMIGON ARMADO", "CON ESPIGA", "TUBERIA CLASE II", "TAPAS PEATONALES"]); nmed, ntip, npre = st.text_input("Med"), st.text_input("Tip"), st.number_input("Pre", format="%.2f")
+                            if st.form_submit_button("Editar"): conn.execute("UPDATE diametros SET seccion=?, medida=?, tipo=?, precio=? WHERE medida=?", (nsec, nmed, ntip, npre, sel)); conn.commit(); st.rerun()
+                with c_b:
+                    if not df_cat.empty:
                         with st.form("b_d"):
-                            st.write("**Borrar**"); del_s = st.selectbox("Eliminar", df_diam['medida'].unique())
-                            if st.form_submit_button("Borrar"): conn.execute("DELETE FROM diametros WHERE medida=?", (del_s,)); conn.commit(); st.rerun()
+                            b_sel = st.selectbox("Borrar", df_cat['medida'].tolist())
+                            if st.form_submit_button("Borrar"): conn.execute("DELETE FROM diametros WHERE medida=?", (b_sel,)); conn.commit(); st.rerun()
             with t2:
-                # PESTAÑA DE CLIENTES ACTUALIZADA
-                df_c_admin = pd.read_sql("SELECT empresa, nombre, telefono FROM clientes ORDER BY nombre ASC", conn)
-                st.write("**Directorio de Clientes**")
-                st.dataframe(df_c_admin, use_container_width=True, hide_index=True)
+                df_cli = pd.read_sql("SELECT empresa, nombre, telefono FROM clientes ORDER BY nombre ASC", conn)
+                st.dataframe(df_cli, use_container_width=True, hide_index=True)
                 c_a, c_e, c_b = st.columns(3)
                 with c_a:
-                    with st.form("a_c", clear_on_submit=True):
-                        st.write("**Registrar Nuevo**")
-                        ne_c = st.text_input("Nombre de la Empresa")
-                        nn_c = st.text_input("Nombre del Contacto")
-                        nt_c = st.text_input("Teléfono")
-                        if st.form_submit_button("Guardar"):
-                            if nn_c: conn.execute("INSERT INTO clientes (empresa, nombre, telefono) VALUES (?,?,?)", (ne_c, nn_c, nt_c)); conn.commit(); st.rerun()
+                    with st.form("a_c"):
+                        e, n, t = st.text_input("Empresa"), st.text_input("Contacto"), st.text_input("Teléfono")
+                        if st.form_submit_button("Guardar"): conn.execute("INSERT INTO clientes (empresa, nombre, telefono) VALUES (?,?,?)", (e, n, t)); conn.commit(); st.rerun()
                 with c_e:
-                    if not df_c_admin.empty:
+                    if not df_cli.empty:
                         with st.form("e_c"):
-                            st.write("**Corregir Cliente**")
-                            sel_c = st.selectbox("Elegir Contacto", df_c_admin['nombre'].tolist())
-                            new_e = st.text_input("Empresa Correcta")
-                            new_n = st.text_input("Contacto Correcto")
-                            new_t = st.text_input("Teléfono Correcto")
-                            if st.form_submit_button("Actualizar"):
-                                if new_n: conn.execute("UPDATE clientes SET empresa=?, nombre=?, telefono=? WHERE nombre=?", (new_e, new_n, new_t, sel_c)); conn.commit(); st.rerun()
+                            sel = st.selectbox("Elegir", df_cli['nombre'].tolist()); ne, nn, nt = st.text_input("Emp"), st.text_input("Cont"), st.text_input("Tel")
+                            if st.form_submit_button("Actualizar"): conn.execute("UPDATE clientes SET empresa=?, nombre=?, telefono=? WHERE nombre=?", (ne, nn, nt, sel)); conn.commit(); st.rerun()
                 with c_b:
-                    if not df_c_admin.empty:
+                    if not df_cli.empty:
                         with st.form("b_c"):
-                            st.write("**Borrar Cliente**")
-                            del_c = st.selectbox("Eliminar Contacto", df_c_admin['nombre'].tolist())
-                            if st.form_submit_button("Borrar"): conn.execute("DELETE FROM clientes WHERE nombre=?", (del_c,)); conn.commit(); st.rerun()
+                            sel = st.selectbox("Eliminar", df_cli['nombre'].tolist())
+                            if st.form_submit_button("Borrar"): conn.execute("DELETE FROM clientes WHERE nombre=?", (sel,)); conn.commit(); st.rerun()
             with t3:
-                st.write("**IVA**")
-                with st.form("f_iva"):
-                    n_iva = st.number_input("IVA (%)", value=float(VALOR_IVA)); 
-                    if st.form_submit_button("Actualizar"): conn.execute("UPDATE configuracion SET valor=? WHERE parametro='iva'", (n_iva,)); conn.commit(); st.rerun()
+                n_iva = st.number_input("IVA (%)", value=float(VALOR_IVA)); 
+                if st.button("Actualizar"): conn.execute("UPDATE configuracion SET valor=? WHERE parametro='iva'", (n_iva,)); conn.commit(); st.rerun()
     conn.close()
