@@ -163,10 +163,12 @@ if login():
 
         st.markdown("---")
         st.subheader("🛠️ Editar o Borrar Fabricación")
-        if not df_hist_p.empty:
+        # Cambio crítico: Lee TODO el historial para que el formulario SIEMPRE exista
+        df_all_p = pd.read_sql("SELECT * FROM produccion ORDER BY id DESC", conn)
+        if not df_all_p.empty:
             with st.form("f_edit_prod"):
                 c1, c2, c3, c4 = st.columns([1, 2, 2, 1])
-                id_sel = c1.selectbox("ID a Modificar", df_hist_p['id'].tolist())
+                id_sel = c1.selectbox("ID a Modificar", df_all_p['id'].tolist())
                 f_new = c2.date_input("Nueva Fecha")
                 d_new = c3.selectbox("Nuevo Producto", listado_prod)
                 n_new = c4.number_input("Nueva Cantidad", min_value=1, step=1)
@@ -178,7 +180,7 @@ if login():
                     conn.execute("DELETE FROM produccion WHERE id=?", (id_sel,))
                     conn.commit(); st.warning("Eliminado"); st.rerun()
         else:
-            st.warning("Selecciona un periodo con fabricaciones para poder editarlas o borrarlas.")
+            st.warning("No hay registros en el sistema para editar o borrar.")
 
     elif opcion == menu[2]:
         st.header("📝 Registro de Pedidos y Ventas")
@@ -200,7 +202,6 @@ if login():
         st.divider()
         st.subheader("🔍 Consultar Pedidos por Periodo")
         c1, c2 = st.columns(2)
-        # Cambio: Buscar por defecto los últimos 30 días para asegurar que se muestre algo
         fv_desde = c1.date_input("Fecha Desde", obtener_fecha_ecuador() - timedelta(days=30), key="fv1")
         fv_hasta = c2.date_input("Fecha Hasta", obtener_fecha_ecuador(), key="fv2")
         df_hist_v = pd.read_sql("SELECT id, fecha, cliente, diametro, cantidad_total, estado FROM pedidos WHERE fecha BETWEEN ? AND ? ORDER BY fecha DESC", conn, params=(str(fv_desde), str(fv_hasta)))
@@ -210,13 +211,14 @@ if login():
         else:
             st.info("⚠️ No hay registros de pedidos o ventas en las fechas seleccionadas.")
 
-        # ESTA SECCIÓN AHORA ES PERMANENTE Y VISIBLE
         st.markdown("---")
         st.subheader("🛠️ Editar o Borrar Pedido")
-        if not df_hist_v.empty:
+        # Cambio crítico: Lee TODO el historial para que el formulario SIEMPRE exista
+        df_all_v = pd.read_sql("SELECT * FROM pedidos ORDER BY id DESC", conn)
+        if not df_all_v.empty:
             with st.form("f_edit_ped"):
                 c1, c2, c3, c4, c5 = st.columns([1, 2, 2, 1, 1])
-                id_v_sel = c1.selectbox("ID a Modificar", df_hist_v['id'].tolist())
+                id_v_sel = c1.selectbox("ID a Modificar", df_all_v['id'].tolist())
                 cl_v_new = c2.selectbox("Nuevo Cliente", listado_cli)
                 d_v_new = c3.selectbox("Nuevo Producto", listado_prod)
                 n_v_new = c4.number_input("Nueva Cantidad", min_value=1, step=1)
@@ -230,7 +232,7 @@ if login():
                     conn.execute("DELETE FROM pedidos WHERE id=?", (id_v_sel,))
                     conn.commit(); st.warning("Pedido Eliminado"); st.rerun()
         else:
-            st.warning("Selecciona un periodo con pedidos registrados para poder editarlos o borrarlos.")
+            st.warning("No hay pedidos en el sistema para editar o borrar.")
 
     elif opcion == menu[3]:
         st.header("🚚 Control de Despachos")
