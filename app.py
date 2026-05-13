@@ -108,7 +108,7 @@ if login():
     except: st.sidebar.title("GUILLÉN")
     
     if st.sidebar.button("💾 Respaldar a Drive"):
-        with st.spinner("Enviando paquete único a Drive..."):
+        with st.spinner("Enviando a Drive..."):
             if subir_datos(): st.sidebar.success("✅ Guardado Exitoso")
             else: st.sidebar.error("❌ Error al guardar")
                 
