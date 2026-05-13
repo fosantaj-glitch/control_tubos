@@ -152,14 +152,18 @@ if login():
         st.divider()
         st.subheader("🔍 Consultar Producción por Periodo")
         c1, c2 = st.columns(2)
-        f_desde = c1.date_input("Fecha Desde", obtener_fecha_ecuador() - timedelta(days=7), key="fp1")
+        f_desde = c1.date_input("Fecha Desde", obtener_fecha_ecuador() - timedelta(days=30), key="fp1")
         f_hasta = c2.date_input("Fecha Hasta", obtener_fecha_ecuador(), key="fp2")
         df_hist_p = pd.read_sql("SELECT id, fecha, diametro, cantidad FROM produccion WHERE fecha BETWEEN ? AND ? ORDER BY fecha DESC", conn, params=(str(f_desde), str(f_hasta)))
         
         if not df_hist_p.empty:
             st.dataframe(df_hist_p, use_container_width=True, hide_index=True)
-            st.markdown("---")
-            st.subheader("🛠️ Editar o Borrar Fabricación")
+        else:
+            st.info("⚠️ No hay registros de fabricación en este periodo de tiempo.")
+
+        st.markdown("---")
+        st.subheader("🛠️ Editar o Borrar Fabricación")
+        if not df_hist_p.empty:
             with st.form("f_edit_prod"):
                 c1, c2, c3, c4 = st.columns([1, 2, 2, 1])
                 id_sel = c1.selectbox("ID a Modificar", df_hist_p['id'].tolist())
@@ -173,7 +177,8 @@ if login():
                 if b2.form_submit_button("🗑️ Borrar", use_container_width=True):
                     conn.execute("DELETE FROM produccion WHERE id=?", (id_sel,))
                     conn.commit(); st.warning("Eliminado"); st.rerun()
-        else: st.info("Sin registros en el periodo.")
+        else:
+            st.warning("Selecciona un periodo con fabricaciones para poder editarlas o borrarlas.")
 
     elif opcion == menu[2]:
         st.header("📝 Registro de Pedidos y Ventas")
@@ -195,14 +200,20 @@ if login():
         st.divider()
         st.subheader("🔍 Consultar Pedidos por Periodo")
         c1, c2 = st.columns(2)
-        fv_desde = c1.date_input("Fecha Desde", obtener_fecha_ecuador() - timedelta(days=7), key="fv1")
+        # Cambio: Buscar por defecto los últimos 30 días para asegurar que se muestre algo
+        fv_desde = c1.date_input("Fecha Desde", obtener_fecha_ecuador() - timedelta(days=30), key="fv1")
         fv_hasta = c2.date_input("Fecha Hasta", obtener_fecha_ecuador(), key="fv2")
         df_hist_v = pd.read_sql("SELECT id, fecha, cliente, diametro, cantidad_total, estado FROM pedidos WHERE fecha BETWEEN ? AND ? ORDER BY fecha DESC", conn, params=(str(fv_desde), str(fv_hasta)))
         
         if not df_hist_v.empty:
             st.dataframe(df_hist_v, use_container_width=True, hide_index=True)
-            st.markdown("---")
-            st.subheader("🛠️ Editar o Borrar Pedido")
+        else:
+            st.info("⚠️ No hay registros de pedidos o ventas en las fechas seleccionadas.")
+
+        # ESTA SECCIÓN AHORA ES PERMANENTE Y VISIBLE
+        st.markdown("---")
+        st.subheader("🛠️ Editar o Borrar Pedido")
+        if not df_hist_v.empty:
             with st.form("f_edit_ped"):
                 c1, c2, c3, c4, c5 = st.columns([1, 2, 2, 1, 1])
                 id_v_sel = c1.selectbox("ID a Modificar", df_hist_v['id'].tolist())
@@ -218,7 +229,8 @@ if login():
                 if b2.form_submit_button("🗑️ Borrar Pedido", use_container_width=True):
                     conn.execute("DELETE FROM pedidos WHERE id=?", (id_v_sel,))
                     conn.commit(); st.warning("Pedido Eliminado"); st.rerun()
-        else: st.info("No hay pedidos registrados en este rango de fechas.")
+        else:
+            st.warning("Selecciona un periodo con pedidos registrados para poder editarlos o borrarlos.")
 
     elif opcion == menu[3]:
         st.header("🚚 Control de Despachos")
@@ -270,7 +282,7 @@ if login():
                         if st.form_submit_button("Guardar"):
                             conn.execute("INSERT INTO diametros (medida, tipo, seccion, precio) VALUES (?,?,?,?)", (n_m, n_t, n_sec, n_p))
                             conn.commit(); st.rerun()
-                with c_edit:
+                with c_e:
                     if not df.empty:
                         with st.form("e_d"):
                             st.write("**Editar Producto**")
@@ -283,7 +295,7 @@ if login():
                             if st.form_submit_button("Actualizar"):
                                 conn.execute("UPDATE diametros SET seccion=?, medida=?, tipo=?, precio=? WHERE medida=?", (new_s, new_m, new_t, new_p, sel_m))
                                 conn.commit(); st.rerun()
-                with c_del:
+                with c_b:
                     if not df.empty:
                         with st.form("b_d"):
                             st.write("**Borrar**")
@@ -300,7 +312,8 @@ if login():
                 with c1:
                     with st.form("a_c", clear_on_submit=True):
                         st.write("**Registrar**")
-                        nn, nt = st.text_input("Nombre"), st.text_input("Teléfono")
+                        nn, nt = st.text_input("Nombre")
+                        nt = st.text_input("Teléfono")
                         if st.form_submit_button("Guardar"):
                             if nn: 
                                 conn.execute("INSERT INTO clientes (nombre, telefono) VALUES (?,?)", (nn, nt))
