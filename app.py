@@ -137,7 +137,7 @@ if login():
     elif opcion == menu[1]:
         st.header("🧱 Registro de Fabricación Diaria")
         df_d = pd.read_sql("SELECT medida, seccion FROM diametros ORDER BY medida", conn)
-        listado_prod = [f"{r['medida']} ({r['seccion']})" for _, r in df_d.iterrows()]
+        listado_prod = [f"{r['medida']} ({r['seccion']})" for _, r in df_d.iterrows()] if not df_d.empty else ["Sin productos"]
         
         with st.form("f_p"):
             c1, c2, c3 = st.columns(3)
@@ -145,7 +145,7 @@ if login():
             d = c2.selectbox("Producto", ["Seleccione..."] + listado_prod)
             n = c3.number_input("Cantidad", min_value=1, step=1)
             if st.form_submit_button("Guardar Fabricación"):
-                if d != "Seleccione...":
+                if d != "Seleccione..." and d != "Sin productos":
                     conn.execute("INSERT INTO produccion (fecha, diametro, cantidad) VALUES (?,?,?)", (str(f), d, n))
                     conn.commit(); st.success("Guardado"); st.rerun()
 
@@ -155,6 +155,7 @@ if login():
         f_desde = c1.date_input("Fecha Desde", obtener_fecha_ecuador() - timedelta(days=7), key="fp1")
         f_hasta = c2.date_input("Fecha Hasta", obtener_fecha_ecuador(), key="fp2")
         df_hist_p = pd.read_sql("SELECT id, fecha, diametro, cantidad FROM produccion WHERE fecha BETWEEN ? AND ? ORDER BY fecha DESC", conn, params=(str(f_desde), str(f_hasta)))
+        
         if not df_hist_p.empty:
             st.dataframe(df_hist_p, use_container_width=True, hide_index=True)
             st.markdown("---")
@@ -178,8 +179,8 @@ if login():
         st.header("📝 Registro de Pedidos y Ventas")
         df_c = pd.read_sql("SELECT nombre FROM clientes ORDER BY nombre", conn)
         df_d = pd.read_sql("SELECT medida, seccion FROM diametros ORDER BY medida", conn)
-        listado_cli = df_c['nombre'].tolist()
-        listado_prod = [f"{r['medida']} ({r['seccion']})" for _, r in df_d.iterrows()]
+        listado_cli = df_c['nombre'].tolist() if not df_c.empty else ["Sin clientes"]
+        listado_prod = [f"{r['medida']} ({r['seccion']})" for _, r in df_d.iterrows()] if not df_d.empty else ["Sin productos"]
         
         with st.form("f_v"):
             c1, c2, c3 = st.columns(3)
@@ -187,7 +188,7 @@ if login():
             d = c2.selectbox("Producto", ["Seleccione..."] + listado_prod)
             n = c3.number_input("Cantidad", min_value=1, step=1)
             if st.form_submit_button("Registrar Pedido"):
-                if cl != "Seleccione..." and d != "Seleccione...":
+                if cl not in ["Seleccione...", "Sin clientes"] and d not in ["Seleccione...", "Sin productos"]:
                     conn.execute("INSERT INTO pedidos (fecha, cliente, diametro, cantidad_total, estado, observaciones) VALUES (?,?,?,?,?,?)", (str(obtener_fecha_ecuador()), cl, d, n, 'Pendiente', ''))
                     conn.commit(); st.success("Registrado"); st.rerun()
 
@@ -209,6 +210,7 @@ if login():
                 d_v_new = c3.selectbox("Nuevo Producto", listado_prod)
                 n_v_new = c4.number_input("Nueva Cantidad", min_value=1, step=1)
                 est_v_new = c5.selectbox("Estado", ["Pendiente", "Entregado"])
+                
                 b1, b2 = st.columns(2)
                 if b1.form_submit_button("✅ Actualizar Pedido", use_container_width=True):
                     conn.execute("UPDATE pedidos SET cliente=?, diametro=?, cantidad_total=?, estado=? WHERE id=?", (cl_v_new, d_v_new, n_v_new, est_v_new, id_v_sel))
@@ -257,8 +259,8 @@ if login():
                             st.table(dfm.assign(idx='').set_index('idx'))
                 
                 st.divider()
-                c_a, c_e, c_b = st.columns(3)
-                with c_a:
+                c_add, c_edit, c_del = st.columns(3)
+                with c_add:
                     with st.form("a_d", clear_on_submit=True):
                         st.write("**Nuevo Producto**")
                         n_sec = st.selectbox("Sección", ["SIN ARMADURA", "HORMIGON ARMADO", "CON ESPIGA", "TUBERIA CLASE II", "TAPAS PEATONALES"])
@@ -268,7 +270,7 @@ if login():
                         if st.form_submit_button("Guardar"):
                             conn.execute("INSERT INTO diametros (medida, tipo, seccion, precio) VALUES (?,?,?,?)", (n_m, n_t, n_sec, n_p))
                             conn.commit(); st.rerun()
-                with c_e:
+                with c_edit:
                     if not df.empty:
                         with st.form("e_d"):
                             st.write("**Editar Producto**")
@@ -281,7 +283,7 @@ if login():
                             if st.form_submit_button("Actualizar"):
                                 conn.execute("UPDATE diametros SET seccion=?, medida=?, tipo=?, precio=? WHERE medida=?", (new_s, new_m, new_t, new_p, sel_m))
                                 conn.commit(); st.rerun()
-                with c_b:
+                with c_del:
                     if not df.empty:
                         with st.form("b_d"):
                             st.write("**Borrar**")
@@ -298,8 +300,7 @@ if login():
                 with c1:
                     with st.form("a_c", clear_on_submit=True):
                         st.write("**Registrar**")
-                        nn, nt = st.text_input("Nombre")
-                        nt = st.text_input("Teléfono")
+                        nn, nt = st.text_input("Nombre"), st.text_input("Teléfono")
                         if st.form_submit_button("Guardar"):
                             if nn: 
                                 conn.execute("INSERT INTO clientes (nombre, telefono) VALUES (?,?)", (nn, nt))
