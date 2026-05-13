@@ -93,7 +93,7 @@ def subir_datos():
         tablas = {"Produccion": "produccion", "Pedidos": "pedidos", "Entregas": "entregas", "Diametros": "diametros", "Clientes": "clientes", "Configuracion": "configuracion"}
         for hoja, db in tablas.items():
             df = pd.read_sql(f"SELECT * FROM {db}", conn).fillna("")
-            df = df.drop_duplicates() # Evita duplicados al enviar a Google Drive
+            df = df.drop_duplicates()
             payload[hoja] = [df.columns.tolist()] + df.values.tolist()
         conn.close(); return requests.post(URL_GOOGLE, json=payload, timeout=30).status_code == 200
     except: return False
@@ -233,11 +233,10 @@ if login():
     elif opcion == menu[4]:
         st.header("⚙️ Administración de Datos")
         if not st.session_state.config_autenticado:
-            with st.form("admin_form"):
-                clave_adm = st.text_input("Clave de Administrador", type="password")
-                if st.form_submit_button("Desbloquear Administración"):
-                    if clave_adm == "Tubos2026":
-                        st.session_state.config_autenticado = True; st.rerun()
+            with st.form("admin_lock"):
+                cl_adm = st.text_input("Clave de Administrador", type="password")
+                if st.form_submit_button("Desbloquear"):
+                    if cl_adm == "Tubos2026": st.session_state.config_autenticado = True; st.rerun()
                     else: st.error("❌ Clave incorrecta")
         else:
             t1, t2, t3 = st.tabs(["📏 Catálogo de Productos", "👥 Clientes", "💰 IVA"])
@@ -258,37 +257,37 @@ if login():
                             st.table(dfm.assign(idx='').set_index('idx'))
                 
                 st.divider()
-                c_add, c_edit, c_del = st.columns(3)
-                with c_add:
-                    with st.form("add_p", clear_on_submit=True):
-                        st.write("**Añadir Nuevo**")
-                        sec = st.selectbox("Sección", ["SIN ARMADURA", "HORMIGON ARMADO", "CON ESPIGA", "TUBERIA CLASE II", "TAPAS PEATONALES"])
-                        med = st.text_input("Medida (mm)")
-                        tip = st.text_input("Tipo")
-                        pre = st.number_input("Precio", format="%.2f")
-                        if st.form_submit_button("Añadir"):
-                            conn.execute("INSERT INTO diametros (medida, tipo, seccion, precio) VALUES (?,?,?,?)", (med, tip, sec, pre))
+                c_a, c_e, c_b = st.columns(3)
+                with c_a:
+                    with st.form("a_d", clear_on_submit=True):
+                        st.write("**Nuevo Producto**")
+                        n_sec = st.selectbox("Sección", ["SIN ARMADURA", "HORMIGON ARMADO", "CON ESPIGA", "TUBERIA CLASE II", "TAPAS PEATONALES"])
+                        n_m = st.text_input("Medida (mm)")
+                        n_t = st.text_input("Tipo/Detalle")
+                        n_p = st.number_input("Valor Unitario", min_value=0.0, format="%.2f")
+                        if st.form_submit_button("Guardar"):
+                            conn.execute("INSERT INTO diametros (medida, tipo, seccion, precio) VALUES (?,?,?,?)", (n_m, n_t, n_sec, n_p))
                             conn.commit(); st.rerun()
-                with c_edit:
+                with c_e:
                     if not df.empty:
-                        with st.form("edit_p"):
-                            st.write("**Editar**")
+                        with st.form("e_d"):
+                            st.write("**Editar Producto**")
                             op_ed = {f"{r['medida']} ({r['seccion']})": r['medida'] for _, r in df.iterrows()}
-                            sel_m = op_ed[st.selectbox("Elegir Producto", list(op_ed.keys()))]
-                            n_sec = st.selectbox("Nueva Sección", ["SIN ARMADURA", "HORMIGON ARMADO", "CON ESPIGA", "TUBERIA CLASE II", "TAPAS PEATONALES"])
-                            n_med = st.text_input("Nueva Medida")
-                            n_tip = st.text_input("Nuevo Tipo")
-                            n_pre = st.number_input("Nuevo Precio", format="%.2f")
+                            sel_m = op_ed[st.selectbox("Elegir Medida", list(op_ed.keys()))]
+                            new_s = st.selectbox("Nueva Sección", ["SIN ARMADURA", "HORMIGON ARMADO", "CON ESPIGA", "TUBERIA CLASE II", "TAPAS PEATONALES"])
+                            new_m = st.text_input("Nuevo Nombre Medida (mm)")
+                            new_t = st.text_input("Nuevo Tipo/Detalle")
+                            new_p = st.number_input("Nuevo Valor Unitario", min_value=0.0, format="%.2f")
                             if st.form_submit_button("Actualizar"):
-                                conn.execute("UPDATE diametros SET seccion=?, medida=?, tipo=?, precio=? WHERE medida=?", (n_sec, n_med, n_tip, n_pre, sel_m))
+                                conn.execute("UPDATE diametros SET seccion=?, medida=?, tipo=?, precio=? WHERE medida=?", (new_s, new_m, new_t, new_p, sel_m))
                                 conn.commit(); st.rerun()
-                with c_del:
+                with c_b:
                     if not df.empty:
-                        with st.form("del_p"):
+                        with st.form("b_d"):
                             st.write("**Borrar**")
-                            b_sel = st.selectbox("Eliminar Producto", df['medida'].tolist())
+                            del_s = st.selectbox("Eliminar", df['medida'].unique())
                             if st.form_submit_button("Borrar"):
-                                conn.execute("DELETE FROM diametros WHERE medida=?", (b_sel,))
+                                conn.execute("DELETE FROM diametros WHERE medida=?", (del_s,))
                                 conn.commit(); st.rerun()
 
             with t2:
@@ -299,7 +298,8 @@ if login():
                 with c1:
                     with st.form("a_c", clear_on_submit=True):
                         st.write("**Registrar**")
-                        nn, nt = st.text_input("Nombre"), st.text_input("Teléfono")
+                        nn, nt = st.text_input("Nombre")
+                        nt = st.text_input("Teléfono")
                         if st.form_submit_button("Guardar"):
                             if nn: 
                                 conn.execute("INSERT INTO clientes (nombre, telefono) VALUES (?,?)", (nn, nt))
